@@ -5,16 +5,11 @@ import { buildSeed } from './seed';
 import { Board } from './Board';
 import { OrderView } from './OrderView';
 import { Rules } from './Rules';
-import { Tasks } from './Tasks';
+import { PERSONA_MENU, Tasks } from './Tasks';
 import { sampleValue } from './TaskCard';
 
 type View = 'list' | 'board' | 'order' | 'rules';
 
-// Persona dropdown, named the way Leadverse names its task personas.
-const MENU: { id: PersonaId; label: string }[] = [
-  { id: 'rm', label: 'RM' }, { id: 'finops', label: 'FinOps' }, { id: 'refurb', label: 'VAS Refurb · QC' },
-  { id: 'rego', label: 'Registration' }, { id: 'delivery', label: 'Delivery' }, { id: 'cx', label: 'CX' },
-];
 
 export default function App() {
   const [now, setNow] = useState(() => Date.now());
@@ -108,10 +103,10 @@ export default function App() {
           <button className="bell" aria-label="Notifications">🔔</button>
           <div className="me" onClick={(e) => { e.stopPropagation(); setPmenu(!pmenu); }}>
             <span className="meav">{PERSONAS[persona].user.split(' ').map((x) => x[0]).join('')}</span>
-            <span className="mename"><b>{PERSONAS[persona].user}</b><small>Persona: {MENU.find((m) => m.id === persona)!.label} ▾</small></span>
+            <span className="mename"><b>{PERSONAS[persona].user}</b><small>Persona: {PERSONA_MENU.find((m) => m.id === persona)!.label} ▾</small></span>
             {pmenu && (
               <div className="pmenu" onClick={(e) => e.stopPropagation()}>
-                {MENU.map((m) => (
+                {PERSONA_MENU.map((m) => (
                   <button key={m.id} className={persona === m.id ? 'on' : ''} onClick={() => { setPersona(m.id); setPmenu(false); if (view === 'rules') setView('list'); }}>
                     <span className="tick">{persona === m.id ? '✓' : ''}</span>{m.label}
                   </button>
@@ -123,7 +118,7 @@ export default function App() {
 
         <main className={'main' + (view === 'order' ? ' full' : '')}>
           {view === 'list' && (
-            <Tasks orders={orders} persona={persona} now={now} open={open} onMove={(oid, tid, to) => doMove(oid, tid, to, persona)} />
+            <Tasks orders={orders} persona={persona} setPersona={setPersona} now={now} open={open} onMove={(oid, tid, to) => doMove(oid, tid, to, persona)} />
           )}
           {view === 'board' && (
             <>

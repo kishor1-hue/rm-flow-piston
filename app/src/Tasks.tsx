@@ -10,8 +10,14 @@ interface Row { o: Order; t?: Task; task: string; status: string; tone: string; 
 
 const PAGE = 8;
 
-export function Tasks({ orders, persona, now, open, onMove }: {
-  orders: Order[]; persona: PersonaId; now: number;
+// Persona dropdown, named the way Leadverse names its task personas.
+export const PERSONA_MENU: { id: PersonaId; label: string }[] = [
+  { id: 'rm', label: 'RM' }, { id: 'finops', label: 'FinOps' }, { id: 'refurb', label: 'VAS Refurb · QC' },
+  { id: 'rego', label: 'Registration' }, { id: 'delivery', label: 'Delivery' }, { id: 'cx', label: 'CX' },
+];
+
+export function Tasks({ orders, persona, setPersona, now, open, onMove }: {
+  orders: Order[]; persona: PersonaId; setPersona: (p: PersonaId) => void; now: number;
   open: (oid: string, tid?: string) => void; onMove: (oid: string, tid: string, to: string) => void;
 }) {
   const journeys = PERSONA_JOURNEYS[persona];
@@ -22,6 +28,7 @@ export function Tasks({ orders, persona, now, open, onMove }: {
   const [fl, setFl] = useState({ state: '', pay: '', breach: false, done: false });
   const [page, setPage] = useState(0);
   const [kebab, setKebab] = useState<string | null>(null);
+  const [pmenu, setPmenu] = useState(false);
   useEffect(() => { setTab('all'); setPage(0); }, [persona]);
   useEffect(() => { setPage(0); }, [tab, q, fl]);
 
@@ -66,7 +73,7 @@ export function Tasks({ orders, persona, now, open, onMove }: {
   const activeF = [fl.state, fl.pay, fl.breach, fl.done].filter(Boolean).length;
 
   return (
-    <div className="tl" onClick={() => setKebab(null)}>
+    <div className="tl" onClick={() => { setKebab(null); setPmenu(false); }}>
       <h1 className="tl-h">Tasks({total})</h1>
       <div className="tl-tools">
         <div className="seg">
@@ -77,6 +84,18 @@ export function Tasks({ orders, persona, now, open, onMove }: {
         </div>
         <span style={{ flex: 1 }} />
         <button className={'btn fbtn' + (showF || activeF ? ' on' : '')} onClick={(e) => { e.stopPropagation(); setShowF(!showF); }}>⛛ Filters{activeF ? ` · ${activeF}` : ''}</button>
+        <div className="pdrop">
+          <button className="btn pbtn" onClick={(e) => { e.stopPropagation(); setPmenu(!pmenu); }}>{PERSONA_MENU.find((m) => m.id === persona)!.label}<span>⌄</span></button>
+          {pmenu && (
+            <div className="pmenu" onClick={(e) => e.stopPropagation()}>
+              {PERSONA_MENU.map((m) => (
+                <button key={m.id} className={persona === m.id ? 'on' : ''} onClick={() => { setPersona(m.id); setPmenu(false); }}>
+                  <span className="tick">{persona === m.id ? '✓' : ''}</span>{m.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
       {showF && (
         <div className="filters" onClick={(e) => e.stopPropagation()}>
