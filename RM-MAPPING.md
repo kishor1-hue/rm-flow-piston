@@ -95,3 +95,27 @@ Naming: `DWxx` = deal workflows, `TWxx` = ticket-swimlane workflows, numbered by
 | Update Refurb GFD to BE – HS BE Back Sync | Refurb GFD known, 1 min delay | Calls OMS back-sync API |
 
 **Corrections to §6:** refurb/RWC starts at **GFR** (a payment milestone), not after the RM intro call; IHF/BYO VAS tickets are created at GFR; the delivery ticket is created when all gates clear (DW06a), not at slot booking.
+
+## 8. Stage-entry rules from HubSpot pipeline settings (15 Nov 2026)
+
+No post-deposit pipeline has *pipeline rules*, so cards can be dragged freely; what stops a move is the **conditional stage properties** (required to enter a stage). Automatic moves come from workflows (e.g. TW01a counts cash split payments).
+
+| Pipeline → stage | Required to enter |
+|---|---|
+| 05 → Requires Mechanical/Panel | RWC Completed Confirmation, Is this a roadworthy item?, Delay (Cosmetic/Mechanical), Panel Information |
+| 05 → RWC Complete – To be Detailed | RWC Completed Confirmation (+ RWC serial number, RWC expiry date shown) |
+| 05 → Detail Complete – Inspection Required | Detailing Complete Confirmation |
+| 05 → Inspection Failed | Failed Pre-Refurb GFD Inspection Notes |
+| 05 → Refurb GFD | Passed Pre-Refurb GFD Inspection, RWC Completed Confirmation |
+| 06 → Generate VIC certificate | Rego number, Check digit, Vehicle year/make/model, Body type, VIN, Engine number, Rego fees, Rego expiry, TAC charge, Rego created date |
+| 06 → Registration Submitted (QLD) | Rego created date, expiry, number, fees, payment mode, RWC number, RWC issue date, RWC link |
+| 06 → Registration Complete | Rego number, Rego expiry (+ public certificate) |
+| 07 → Delivered | Actual delivery date (+3 more) |
+| 02 → Recall check passed / failed | Recall check status |
+| 02 → CX Action Required | Reason for CX action (+1) |
+| 02 → No Automated Envelope in DocuSign | Tax invoice link |
+| 02 → Contract Sent / Form 4 / For Review | Recall check status, Document handling, Tax invoice link |
+| 02 → Contract Signed | Contract signed confirmation, Recall check status, Contract of sale link, Tax invoice link, Transfer document link, Document handling |
+| 01a → Finance GFD | Finance GFD Confirmation |
+
+TW01a (cash): when the ticket is at First Instalment Paid / Awaiting Additional Deposit and a deposit-type payment lands, it increments Split Payment Count and branches on >1 / =1.

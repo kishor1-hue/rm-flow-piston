@@ -1,117 +1,229 @@
-import { useState } from 'react';
-import { JOURNEYS, PERSONAS, RM_STAGES, RULES, type PersonaId } from './model';
-import { fmtAge, gatesClear, gateStatus, hsDealStage, isDone, money, outstanding, rmStage, stageDef, task, type Order } from './engine';
-import { PERSONA_JOURNEYS, rmNext } from './Board';
-import { TaskCard } from './TaskCard';
+import { useEffect, useState } from 'react';
+import { JOURNEYS, PERSONAS, RM_STAGES, type PersonaId, type TransitionDef } from './model';
+import {
+  availableNext, canMove, fmtAge, gatesClear, gateStatus, hsDealStage, isDone, missingFields, money, outstanding,
+  prevStage, rmStage, slaState, stageDef, task, type Order, type Task,
+} from './engine';
+import { PERSONA_JOURNEYS } from './Board';
+import { Field } from './TaskCard';
 
 function aiSummary(o: Order, now: number) {
   const parts: string[] = [];
   const days = Math.ceil((now - o.depositAt) / 86400000);
   parts.push(`${o.customer.name.split(' ')[0]} paid a deposit ${days === 1 ? 'today' : days + ' days ago'} for a ${o.car.year} ${o.car.make} ${o.car.model} (${o.paymentMode}${o.lender ? ' · ' + o.lender : ''}).`);
   const open = gateStatus(o).filter((g) => !g.ok).map((g) => g.label);
-  if (rmStage(o) === 'delivered') parts.push('The car has been handed over; CX check-ins are running.');
-  else if (o.slot) parts.push(`Handover is booked for ${o.slot.date} at ${o.slot.time}.`);
-  else if (open.length) parts.push(`Slot is blocked by: ${open.join(', ')}.`);
-  else parts.push('All four gates are clear — the slot can be booked now.');
+  if (rmStage(o) === 'delivered') parts.push('Handed over; CX check-ins are running.');
+  else if (o.slot) parts.push(`Handover booked ${o.slot.date} at ${o.slot.time}.`);
+  else if (open.length) parts.push(`Slot blocked by ${open.join(', ')}.`);
+  else parts.push('Every gate is clear — book the slot.');
   const rwc = task(o, 'rwc');
-  if (rwc?.stage === 'fail') parts.push(`Roadworthy failed (${rwc.fields.failReason}); rework ETA ${rwc.fields.reworkEta}.`);
-  if (o.promises.length) parts.push(`Sales promised: ${o.promises.join('; ')}${isDone(task(o, 'refurb')) ? ' — delivered' : ' — not yet confirmed by refurb'}.`);
-  const bal = outstanding(o);
-  if (bal > 0) parts.push(`Outstanding balance ${money(bal)}.`);
-  parts.push('Next: ' + rmNext(o, now).text + '.');
+  if (rwc?.stage === 'fail') parts.push(`RWC failed; rework ETA ${rwc.fields.reworkEta}.`);
+  if (o.promises.length) parts.push(`Promised: ${o.promises.join('; ')}.`);
   return parts.join(' ');
 }
 
-function LeftPanel({ o, now }: { o: Order; now: number }) {
+type Item = { kind: 'task'; t: Task } | { kind: 'slot' };
+
+function LeftPanel({ o, now, persona, onDemo }: { o: Order; now: number; persona: PersonaId; onDemo: (tid: string) => void }) {
+  const [tab, setTab] = useState<'order' | 'teams' | 'activity'>('order');
+  const [feed, setFeed] = useState<'all' | 'rule' | 'comms'>('all');
+  const others = o.tasks.filter((t) => !PERSONA_JOURNEYS[persona].includes(t.journey));
   const rego = task(o, 'rego');
+  const initials = o.customer.name.split(' ').map((x) => x[0]).join('');
   return (
-    <div className="lp">
-      <div className="card summary">
-        <div className="ct">✦ Summary</div>
-        <p>{aiSummary(o, now)}</p>
-      </div>
-      <div className="card">
-        <div className="lp-title">Customer</div>
-        <div className="kv">
-          <div><span>Name</span><b>{o.customer.name}</b></div>
-          <div><span>Phone</span><b>{o.customer.phone}</b></div>
-          <div><span>Email</span><b style={{ fontSize: 12 }}>{o.customer.email}</b></div>
-          <div><span>State</span><b>{o.customer.suburb}, {o.customer.state}</b></div>
-          <div><span>RM</span><b>Priyanka A.</b></div>
+    <div className="ws-left">
+      <div className="ws-id">
+        <div className="avatar">{initials}</div>
+        <div style={{ minWidth: 0 }}>
+          <div className="ws-name">{o.customer.name}</div>
+          <span className="chip c-lv">{RM_STAGES.find((s) => s.key === rmStage(o))!.label}</span>
         </div>
       </div>
-      <div className="card">
-        <div className="lp-title">Car</div>
-        <div className="kv">
-          <div><span>Order · Appt ID</span><b className="mono">{o.id} · …{o.apptId.slice(-6)}</b></div>
-          <div><span>Car</span><b>{o.car.year} {o.car.make} {o.car.model}</b></div>
-          <div><span>Odometer · colour</span><b>{o.car.km.toLocaleString()} km · {o.car.colour}</b></div>
-          <div><span>VIN</span><b className="mono">{o.car.vin}</b></div>
-          <div><span>Located at</span><b>{o.car.hub}</b></div>
-          {o.interstate && <div><span>Interstate</span><b style={{ color: 'var(--amber-ink)' }}>{o.car.hubState} → {o.customer.state}</b></div>}
-          <div><span>Rego</span><b>{(rego?.fields.regoNumber as string) || 'Not yet'}</b></div>
-        </div>
+      <div className="ws-tabs">
+        {([['order', 'Order'], ['teams', `Teams · ${others.filter((t) => stageDef(t).kind !== 'done').length}`], ['activity', 'Activity']] as const).map(([k, l]) => (
+          <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>
+        ))}
       </div>
-      <div className="card">
-        <div className="lp-title">Money</div>
-        <div className="kv">
-          <div><span>Payment mode</span><b>{o.paymentMode}</b></div>
-          {o.lender && <div><span>Lender</span><b>{o.lender}</b></div>}
-          <div><span>Car price</span><b>{money(o.price)}</b></div>
-          {o.vas.map((v) => <div key={v.name}><span>+ {v.name}</span><b>{money(v.price)}</b></div>)}
-          {o.tradeIn && <div><span>− Trade-in ({o.tradeIn.car})</span><b>{money(o.tradeIn.value)}</b></div>}
-          <div><span>Deposit paid</span><b>{money(o.depositPaid)}</b></div>
-          <div><span>Outstanding</span><b style={{ color: outstanding(o) > 0 ? 'var(--amber-ink)' : 'var(--green-ink)' }}>{outstanding(o) > 0 ? money(outstanding(o)) : 'Paid'}</b></div>
-        </div>
-      </div>
-      <div className="card">
-        <div className="lp-title">Handover</div>
-        <div className="kv">
-          <div><span>Mode</span><b>{o.deliveryMode}</b></div>
-          <div><span>Slot</span><b>{o.slot ? `${o.slot.date} · ${o.slot.time}` : 'Not booked'}</b></div>
-          {o.slot && <div><span>Booked by</span><b>{o.slot.by}</b></div>}
-          {o.promises.length > 0 && <div style={{ display: 'block' }}><span>Sales promises</span>{o.promises.map((p) => <div key={p} style={{ fontWeight: 600, marginTop: 3 }}>• {p}</div>)}</div>}
-        </div>
+      <div className="ws-scroll">
+        {tab === 'order' && (
+          <>
+            <div className="summary-box"><b>✦ Summary</b><p>{aiSummary(o, now)}</p></div>
+            <div className="lp-title">Customer</div>
+            <div className="kvbox">
+              <div><span>Phone</span><b>{o.customer.phone}</b></div>
+              <div><span>Email</span><b style={{ fontSize: 12 }}>{o.customer.email}</b></div>
+              <div><span>State</span><b>{o.customer.suburb}, {o.customer.state}</b></div>
+              <div><span>RM</span><b>Priyanka A.</b></div>
+            </div>
+            <div className="lp-title">Car</div>
+            <div className="kvbox">
+              <div><span>Order · Appt</span><b className="mono">{o.id} · …{o.apptId.slice(-6)}</b></div>
+              <div><span>Car</span><b>{o.car.year} {o.car.make} {o.car.model}</b></div>
+              <div><span>Odometer</span><b>{o.car.km.toLocaleString()} km · {o.car.colour}</b></div>
+              <div><span>VIN</span><b className="mono">{o.car.vin}</b></div>
+              <div><span>Located at</span><b>{o.car.hub}</b></div>
+              {o.interstate && <div><span>Interstate</span><b style={{ color: 'var(--amber-ink)' }}>{o.car.hubState} → {o.customer.state}</b></div>}
+              <div><span>Rego</span><b>{(rego?.fields.regoNumber as string) || 'Not yet'}</b></div>
+            </div>
+            <div className="lp-title">Money</div>
+            <div className="kvbox">
+              <div><span>Payment mode</span><b>{o.paymentMode}{o.lender ? ' · ' + o.lender : ''}</b></div>
+              <div><span>Car price</span><b>{money(o.price)}</b></div>
+              {o.vas.map((v) => <div key={v.name}><span>+ {v.name}</span><b>{money(v.price)}</b></div>)}
+              {o.tradeIn && <div><span>− Trade-in</span><b>{money(o.tradeIn.value)}</b></div>}
+              <div><span>Outstanding</span><b style={{ color: outstanding(o) > 0 ? 'var(--amber-ink)' : 'var(--green-ink)' }}>{outstanding(o) > 0 ? money(outstanding(o)) : 'Paid'}</b></div>
+            </div>
+            <div className="lp-title">Handover</div>
+            <div className="kvbox">
+              <div><span>Mode</span><b>{o.deliveryMode}</b></div>
+              <div><span>Slot</span><b>{o.slot ? `${o.slot.date} · ${o.slot.time}` : 'Not booked'}</b></div>
+              {o.promises.map((p) => <div key={p}><span>Sales promise</span><b>{p}</b></div>)}
+            </div>
+          </>
+        )}
+        {tab === 'teams' && (
+          <>
+            <div className="cs" style={{ marginBottom: 6 }}>Other teams' tasks on this order. Read-only for {PERSONAS[persona].short}.</div>
+            {others.length === 0 && <div className="statusline">No other team has a task yet.</div>}
+            {others.map((t) => {
+              const def = JOURNEYS[t.journey];
+              const s = stageDef(t);
+              const p = PERSONAS[def.persona];
+              const facts = Object.entries(t.fields)
+                .filter(([k, v]) => v && ['rwcNumber', 'regoNumber', 'reworkEta', 'transitEta', 'installDate', 'qcEta', 'panelInfo'].includes(k))
+                .map(([k, v]) => `${({ rwcNumber: 'RWC', regoNumber: 'Rego', reworkEta: 'Rework ETA', transitEta: 'Hub ETA', installDate: 'Install', qcEta: 'QC fix ETA', panelInfo: 'Issue' } as Record<string, string>)[k]} ${v}`);
+              const nx = availableNext(o, t)[0];
+              return (
+                <div key={t.id} className="ro-card">
+                  <div className="rh"><span className="who" style={{ background: p.color }} />{def.name}{t.item ? ' · ' + t.item : ''}<span className="chip c-grey" style={{ marginLeft: 'auto' }}>{p.short}</span></div>
+                  <div className="rs"><span className={'chip ' + (s.kind === 'done' ? 'c-green' : s.kind === 'fail' ? 'c-red' : 'c-lv')}>{s.label}</span> <span className="age" style={{ marginLeft: 6 }}>{fmtAge(now - t.enteredAt)}</span></div>
+                  {facts.length > 0 && <div className="rf">{facts.join(' · ')}</div>}
+                  {t.journey === 'vas' && <div className="rf">Doesn't block the slot</div>}
+                  {nx && s.kind !== 'done' && <div className="acts" style={{ marginTop: 7 }}><button className="btn sm demo" onClick={() => onDemo(t.id)}>Demo: {p.short} → {nx.label}</button></div>}
+                </div>
+              );
+            })}
+          </>
+        )}
+        {tab === 'activity' && (
+          <>
+            <div className="ftabs" style={{ marginTop: 0 }}>
+              {(['all', 'rule', 'comms'] as const).map((k) => <button key={k} className={'fchip' + (feed === k ? ' on' : '')} onClick={() => setFeed(k)}>{k === 'all' ? 'All' : k === 'rule' ? 'Workflow rules' : 'Comms'}</button>)}
+            </div>
+            <div className="feed">
+              {o.activity.filter((a) => feed === 'all' || (feed === 'rule' ? a.kind === 'rule' || a.kind === 'gate' : a.kind === 'comms')).slice(0, 50).map((a, i) => (
+                <div key={i} className="fe">
+                  <span className={'ic ' + a.kind}>{a.kind === 'rule' ? 'R' : a.kind === 'comms' ? '✉' : a.kind === 'gate' ? '✓' : a.kind === 'block' ? '!' : '•'}</span>
+                  <div>
+                    <div className="ft">{a.text}</div>
+                    <div className="fm">{a.who} · {fmtAge(now - a.at)} ago{a.rule ? ' · ' + a.rule : ''}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
 }
 
-function SlotCard({ o, onBook, onBypass }: { o: Order; onBook: (d: string, t: string, ov: boolean) => void; onBypass: (on: boolean) => void }) {
-  const [date, setDate] = useState('Tue 17 Nov');
-  const [time, setTime] = useState('11:00 am');
-  const gs = gateStatus(o);
-  const clear = gatesClear(o);
-  const vasOpen = o.tasks.filter((t) => t.journey === 'vas' && !isDone(t));
+function Stepper({ t }: { t: Task }) {
+  const def = JOURNEYS[t.journey];
+  const cur = stageDef(t);
+  const path = def.stages.filter((s) => !s.kind || s.kind === 'done' || s.key === t.stage);
+  const ci = path.findIndex((s) => s.key === t.stage);
+  const shown = path.filter((s, i) => s.kind !== 'done' || i === path.length - 1 || s.key === t.stage);
   return (
-    <div className="card">
-      <div className="ct">Delivery slot <span className={'chip ' + (o.slot ? 'c-blue' : clear ? 'c-green' : 'c-amber')}>{o.slot ? 'Booked' : clear ? 'Open' : 'Blocked'}</span></div>
-      <div className="cs">Gate today in OMS: <span className="mono">isDeliveryBookingAllowed()</span> — every date back-synced from HubSpot tickets. In LeadVerse each gate is a task on this order.</div>
-      <div className="gatebox">
-        {gs.map((g) => {
-          const na = 'na' in g && g.na; const ov = 'override' in g && g.override;
-          return (
-            <div key={g.key} className={'gate ' + (ov ? 'ov' : g.ok ? 'ok' : 'no')}>
-              <div className="gl">{g.ok ? '✓' : '○'} {g.label}</div>
-              <div style={{ color: 'var(--mute)', marginTop: 3 }}>{na ? 'Not interstate' : ov ? 'Bypassed by RM' : g.ok ? 'Done' : `Owner: ${PERSONAS[g.owner].short}`}</div>
-            </div>
-          );
-        })}
-      </div>
-      {vasOpen.length > 0 && <div className="statusline">{vasOpen.length} VAS item{vasOpen.length > 1 ? 's' : ''} still open ({vasOpen.map((v) => v.item).join(', ')}) — <b>not blocking</b> (R3: warranty, tint, dashcam never hold the slot).</div>}
-      {!o.slot && (
-        <div className="acts">
-          <select className="btn" value={date} onChange={(e) => setDate(e.target.value)}>{['Mon 16 Nov', 'Tue 17 Nov', 'Wed 18 Nov', 'Thu 19 Nov'].map((d) => <option key={d}>{d}</option>)}</select>
-          <select className="btn" value={time} onChange={(e) => setTime(e.target.value)}>{['9:00 am', '11:00 am', '1:00 pm', '3:00 pm'].map((d) => <option key={d}>{d}</option>)}</select>
-          <button className="btn primary" disabled={!clear} onClick={() => onBook(date, time, false)}>Book & confirm to customer</button>
-          {!clear && !isDone(task(o, 'contract')) && (
-            <label className="check" style={{ paddingTop: 0 }}>
-              <input type="checkbox" checked={o.bypassContract} onChange={(e) => onBypass(e.target.checked)} /> Bypass contract gate
-            </label>
-          )}
+    <div className="stepper">
+      {shown.map((s) => {
+        const i = path.indexOf(s);
+        const st = s.key === t.stage ? (s.kind === 'fail' ? 'fail' : cur.kind === 'done' ? 'done' : 'act') : i < ci ? 'done' : '';
+        return (
+          <div key={s.key} className={'sp ' + st}>
+            <div className="spdot">{st === 'done' ? '✓' : st === 'fail' ? '!' : ''}</div>
+            <div className="spl">{s.label}</div>
+            <div className="sps">{st === 'done' ? 'Done' : st === 'act' ? 'In progress' : st === 'fail' ? 'Blocked' : 'Pending'}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function Tiles({ o }: { o: Order }) {
+  const pay = task(o, 'payment');
+  const con = task(o, 'contract');
+  const prep = (['rwc', 'rego', 'refurb'] as const).map((j) => task(o, j)).find((t) => t && !isDone(t));
+  const tiles = [
+    { k: 'Payment', v: pay ? stageDef(pay).label : '—', s: outstanding(o) > 0 ? `${money(outstanding(o))} outstanding` : 'Paid in full', bad: pay && stageDef(pay).kind === 'fail' },
+    { k: 'Contract', v: con ? stageDef(con).label : '—', s: o.bypassContract ? 'Gate bypassed by RM' : 'RM-owned', bad: con && stageDef(con).kind === 'fail' },
+    { k: 'Car prep', v: prep ? `${JOURNEYS[prep.journey].name}: ${stageDef(prep).label}` : task(o, 'rwc') ? 'Refurb GFD ✓' : 'Waiting for GFR', s: prep?.fields.reworkEta ? `Rework ETA ${prep.fields.reworkEta}` : prep?.fields.qcEta ? `QC fix ETA ${prep.fields.qcEta}` : hsDealStage(o), bad: prep && stageDef(prep).kind === 'fail' },
+    { k: 'Slot', v: o.slot ? `${o.slot.date} · ${o.slot.time}` : gatesClear(o) ? 'Open to book' : 'Blocked', s: `${gateStatus(o).filter((g) => g.ok).length}/4 gates clear`, bad: false },
+  ];
+  return (
+    <div className="tiles">
+      {tiles.map((x) => (
+        <div key={x.k} className={'tile' + (x.bad ? ' bad' : '')}>
+          <div className="tk">{x.k}</div>
+          <div className="tv">{x.v}</div>
+          <div className="ts">{x.s}</div>
         </div>
-      )}
-      {!clear && !o.slot && <div className="hs" style={{ marginTop: 8 }}>by_pass_contract_gfd_for_delivery_slots</div>}
+      ))}
+    </div>
+  );
+}
+
+function CarGpt({ o, item, now }: { o: Order; item: Item; now: number }) {
+  const [q, setQ] = useState('');
+  const [answers, setAnswers] = useState<{ q: string; a: string }[]>([]);
+  const first = o.customer.name.split(' ')[0];
+  let say = '', context: string[] = [], watch: string[] = [];
+  if (item.kind === 'slot') {
+    say = `"Hi ${first}, it's Priyanka from CARS24 — great news, your ${o.car.make} ${o.car.model} is ready. Which day suits you for the handover at ${o.car.hub.split(' · ')[0]}?"`;
+    context = [`Gates: ${gateStatus(o).map((g) => `${g.label} ${g.ok ? '✓' : '○'}`).join(' · ')}`];
+    if (o.vas.length) context.push(`VAS (${o.vas.map((v) => v.name).join(', ')}) never holds the slot.`);
+  } else {
+    const t = item.t;
+    const s = stageDef(t);
+    const j = t.journey;
+    if (j === 'onboard') say = `"Hi ${first}, it's Priyanka from CARS24, your relationship manager. Congratulations on the ${o.car.year} ${o.car.make} ${o.car.model}! I'll walk you through what happens next and the ${money(outstanding(o))} balance."`;
+    else if (j === 'contract') say = `"Hi ${first}, your contract of sale is in your inbox from DocuSign. It takes about two minutes to sign${o.tradeIn ? ', and there is a Form 4 for your trade-in' : ''}."`;
+    else if (j === 'rwc') say = s.key === 'fail' ? `Tell the RM: "${o.id} failed roadworthy — ${t.fields.panelInfo || 'issue being logged'}. Rework ETA ${t.fields.reworkEta || 'to be set'}."` : `Book ${o.id} into the RWC bay at ${o.car.hub.split(' · ')[0]}.`;
+    else if (j === 'rego') say = `${o.customer.state} rule: ${o.customer.state === 'VIC' ? 'generate the VIC certificate (check digit + TAC charge needed).' : o.customer.state === 'QLD' ? 'submit to TMR with the RWC number, issue date and link.' : 'NSW goes straight to Registration complete.'}`;
+    else if (j === 'refurb') say = o.promises.length ? `Sales promised: ${o.promises.join('; ')}. Tick them off before detailing.` : 'No sales promises on this order. Detail and send to QC.';
+    else if (j === 'delivery') say = `"Hi ${first}, I'm at ${o.car.hub.split(' · ')[0]} with your ${o.car.make}. Before we go: odometer, a walk-around, then your signature on the handover form."`;
+    else if (j === 'vas') say = `Book ${t.item} with the installer. It can go in after handover — it never holds the slot.`;
+    else say = s.guide || '';
+    context = [s.guide || '', s.auto ? `HubSpot today: ${s.auto}.` : ''].filter(Boolean);
+    const miss = missingFields(t, availableNext(o, t)[0]?.requires);
+    if (miss.length) watch.push(`Required to move on: ${miss.map((k) => (s.fields || []).find((f) => f.key === k)?.label).join(', ')}.`);
+    if (slaState(t, now) === 'breach') watch.push(`SLA breached — ${fmtAge(now - t.enteredAt)} in "${s.label}" (SLA ${s.slaHours}h).`);
+  }
+  if (o.interstate) context.push(`Interstate car: ${o.car.hubState} → ${o.customer.state}; hub arrival is a gate.`);
+  if (o.paymentMode !== 'Cash') context.push(`${o.paymentMode}${o.lender ? ' with ' + o.lender : ''}: GFR came from the lender approval, not a payment.`);
+  const ask = () => {
+    if (!q.trim()) return;
+    const ql = q.toLowerCase();
+    const a = ql.includes('slot') || ql.includes('book') ? (gatesClear(o) ? 'All gates are clear. Book from the Delivery slot step.' : `Not yet. Open gates: ${gateStatus(o).filter((g) => !g.ok).map((g) => g.label).join(', ')}.`)
+      : ql.includes('pay') || ql.includes('owe') || ql.includes('balance') ? `Outstanding ${money(outstanding(o))}. Payment ticket is at "${stageDef(task(o, 'payment')!).label}".`
+      : aiSummary(o, now);
+    setAnswers([...answers, { q, a }]);
+    setQ('');
+  };
+  return (
+    <div className="ws-right">
+      <div className="gpt-head">✦ CarGPT</div>
+      <div className="gpt-scroll">
+        <div className="gpt-card"><div className="gk">Say this</div><div className="gv">{say}</div></div>
+        {context.length > 0 && <div className="gpt-card"><div className="gk">Use the context</div>{context.map((c) => <div key={c} className="gv">{c}</div>)}</div>}
+        {watch.length > 0 && <div className="gpt-card warn"><div className="gk">Watch out</div>{watch.map((c) => <div key={c} className="gv">{c}</div>)}</div>}
+        {answers.map((x, i) => <div key={i} className="gpt-card"><div className="gk">You asked: {x.q}</div><div className="gv">{x.a}</div></div>)}
+      </div>
+      <div className="gpt-input">
+        <input id="gpt-q" placeholder="Ask about this order…" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && ask()} />
+        <button className="btn primary sm" onClick={ask}>Ask</button>
+      </div>
     </div>
   );
 }
@@ -121,119 +233,157 @@ export function OrderView({ o, persona, now, onField, onMove, onDemo, onBook, on
   onField: (tid: string, k: string, v: string | boolean) => void; onMove: (tid: string, to: string) => void; onDemo: (tid: string) => void;
   onBook: (d: string, t: string, ov: boolean) => void; onBypass: (on: boolean) => void; onComms: (text: string) => void;
 }) {
-  const [feed, setFeed] = useState<'all' | 'rule' | 'comms'>('all');
   const mine = o.tasks.filter((t) => PERSONA_JOURNEYS[persona].includes(t.journey));
-  const others = o.tasks.filter((t) => !PERSONA_JOURNEYS[persona].includes(t.journey));
-  const stage = rmStage(o);
-  const si = RM_STAGES.findIndex((s) => s.key === stage);
-  const pay = task(o, 'payment');
+  const items: Item[] = [...mine.map((t) => ({ kind: 'task' as const, t })), ...(persona === 'rm' ? [{ kind: 'slot' as const }] : [])];
+  const defaultKey = () => {
+    const open = mine.find((t) => !isDone(t));
+    if (persona === 'rm' && (!open || (rmStage(o) === 'ready' && !o.slot))) return 'slot';
+    return open?.id || mine[0]?.id || (persona === 'rm' ? 'slot' : '');
+  };
+  const [sel, setSel] = useState<string>(defaultKey);
+  const [menu, setMenu] = useState(false);
+  const [date, setDate] = useState('Tue 17 Nov');
+  const [time, setTime] = useState('11:00 am');
+  useEffect(() => { setSel(defaultKey()); setMenu(false); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [o.id, persona]);
+  const item: Item | undefined = sel === 'slot' ? (persona === 'rm' ? { kind: 'slot' } : undefined) : (() => { const t = mine.find((x) => x.id === sel); return t ? { kind: 'task' as const, t } : undefined; })();
+  const t = item?.kind === 'task' ? item.t : undefined;
+  const s = t ? stageDef(t) : undefined;
+  const nexts: TransitionDef[] = t ? availableNext(o, t) : [];
+  const primary = nexts[0];
+  const prev = t ? prevStage(t) : null;
+  const blockReason = (n: TransitionDef) => {
+    if (!t) return '';
+    const miss = missingFields(t, n.requires);
+    if (miss.length) return 'Fill first: ' + miss.map((k) => (s!.fields || []).find((f) => f.key === k)?.label || k).join(', ');
+    const c = canMove(o, t, n.to);
+    return c.ok ? '' : c.reason!;
+  };
+  const doNext = (n: TransitionDef) => { if (t && !blockReason(n)) { onMove(t.id, n.to); setMenu(false); } };
+  const clear = gatesClear(o);
+  const extra = [
+    { label: `Call ${o.customer.name.split(' ')[0]}`, run: () => onComms(`Call to ${o.customer.phone} logged with recording and transcript`) },
+    { label: 'Call back later', run: () => onComms('Call back scheduled for tomorrow 10:00 am (task reminder set)') },
+    { label: 'Raise a task for another team', run: () => onComms('Child task raised: "Please confirm ETA" → assigned to the owning team') },
+    { label: 'Add internal note', run: () => onComms('Internal note added to the order') },
+  ];
 
   return (
-    <>
-      <div className="head">
-        <div>
-          <h1>{o.id} · {o.customer.name}</h1>
-          <div className="sub">{o.car.year} {o.car.make} {o.car.model} · {o.paymentMode} · deposit {fmtAge(now - o.depositAt)} ago</div>
-        </div>
-        <span className="chip c-lv" style={{ marginLeft: 'auto' }}>Order stage: {RM_STAGES[si].label}</span>
-        <span className="chip c-grey" title="What the HubSpot deal would show">HubSpot deal: {hsDealStage(o)}</span>
-        <button className="btn" onClick={back}>← Board</button>
-      </div>
+    <div className="ws">
+      <LeftPanel o={o} now={now} persona={persona} onDemo={onDemo} />
 
-      <div className="card">
-        <div className="ct">Order journey <span className="cs" style={{ marginTop: 0, marginLeft: 6 }}>derived from the teams' tasks — nobody sets it by hand</span></div>
-        <div className="track">
-          {RM_STAGES.map((s, i) => (
-            <div key={s.key} className={'tstep ' + (i < si || stage === 'delivered' ? 'done' : i === si ? 'act' : '')}>
-              <div className="dot">{i < si || stage === 'delivered' ? '✓' : i + 1}</div>
-              {s.label}
-              <span className="hsl">{s.hs}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="rec">
-        <LeftPanel o={o} now={now} />
-
-        <div>
-          {persona === 'rm' && stage !== 'delivered' && (stage === 'ready' || stage === 'blockers' || stage === 'booked' || stage === 'prep') && (
-            <SlotCard o={o} onBook={onBook} onBypass={onBypass} />
-          )}
-          <div className="card">
-            <div className="ct">{PERSONAS[persona].short} tasks on this order <span className="chip c-lv">{mine.filter((t) => stageDef(t).kind !== 'done').length} open</span></div>
-            <div className="cs">Fill the properties for the current stage and move it on. Stage changes fire the trigger rules for other teams.</div>
-            {mine.length === 0 && <div className="statusline">No {PERSONAS[persona].short} task on this order yet. It is created by a trigger rule when the order reaches your step — see the other teams on the right.</div>}
-            {mine.map((t) => (
-              <TaskCard key={t.id} order={o} t={t} editable={JOURNEYS[t.journey].persona === persona} now={now} onField={(k, v) => onField(t.id, k, v)} onMove={(to) => onMove(t.id, to)} />
-            ))}
-          </div>
-
-          {persona === 'rm' && pay && (
-            <div className="card">
-              <div className="ct">Payment <span className={'chip ' + (isDone(pay) ? 'c-green' : stageDef(pay).kind === 'fail' ? 'c-red' : 'c-amber')}>{stageDef(pay).label}</span><span className="lock">Read-only · FinOps</span></div>
-              <div className="cs">{o.paymentMode === 'Cash' ? '01a Cash Customer Finance' : o.paymentMode === 'BYO' ? '01b BYO Finance Customer' : '01d In-house Finance (finance notes and credit data masked for RM)'}</div>
-              <div className="acts">
-                {!isDone(pay) && <button className="btn" onClick={() => onComms('Remittance flagged to FinOps as a child task with the bank reference — no screenshot needed (R6)')}>Flag a remittance to FinOps</button>}
-                <button className="btn" onClick={() => onComms(`Payment reminder sent to ${o.customer.email} with outstanding ${money(outstanding(o))}`)}>Send payment reminder</button>
-              </div>
-            </div>
-          )}
-
-          {persona === 'rm' && (
-            <div className="card">
-              <div className="ct">Message the customer</div>
-              <div className="cs">Templates pull deal fields in; you edit before sending. Every send lands on the timeline (R5, R10).</div>
-              <div className="acts">
-                {['Roadworthy update with ETA', 'Your car is ready — book handover', 'Contract reminder', 'Handover day checklist'].map((t) => (
-                  <button key={t} className="btn sm" onClick={() => onComms(`Email + SMS sent: "${t}" to ${o.customer.name}`)}>{t}</button>
-                ))}
-              </div>
-            </div>
-          )}
+      <div className="ws-mid">
+        <div className="ws-bar">
+          <button className="btn sm" onClick={back}>← Board</button>
+          <div className="ws-title"><b>{o.id}</b> · {o.car.year} {o.car.make} {o.car.model}</div>
+          <span className="chip c-grey" title="What the HubSpot deal would show">HubSpot deal: {hsDealStage(o)}</span>
         </div>
 
-        <div className="rp">
-          <div className="card">
-            <div className="ct">Other teams</div>
-            <div className="cs">Read-only. Each card is another persona's task on this order.</div>
-            {others.length === 0 && <div className="statusline">No other team has a task yet.</div>}
-            {others.map((t) => {
-              const def = JOURNEYS[t.journey];
-              const s = stageDef(t);
-              const p = PERSONAS[def.persona];
-              const keyField = (s.fields || []).map((fd) => t.fields[fd.key] && `${fd.label}: ${t.fields[fd.key] === true ? 'Yes' : t.fields[fd.key]}`).filter(Boolean).slice(0, 2);
-              const done = Object.entries(t.fields).filter(([k]) => ['rwcNumber', 'regoNumber', 'reworkEta', 'transitEta', 'installDate'].includes(k)).map(([k, v]) => `${k === 'rwcNumber' ? 'RWC' : k === 'regoNumber' ? 'Rego' : k === 'reworkEta' ? 'Rework ETA' : k === 'transitEta' ? 'Hub ETA' : 'Install'} ${v}`);
-              return (
-                <div key={t.id} className="ro-card">
-                  <div className="rh"><span className="who" style={{ background: p.color }} />{def.name}{t.item ? ' · ' + t.item : ''}<span className="chip c-grey" style={{ marginLeft: 'auto' }}>{p.short}</span></div>
-                  <div className="rs"><span className={'chip ' + (s.kind === 'done' ? 'c-green' : s.kind === 'fail' ? 'c-red' : 'c-lv')}>{s.label}</span> <span className="age" style={{ marginLeft: 6 }}>{fmtAge(now - t.enteredAt)}</span></div>
-                  {(done.length > 0 || keyField.length > 0) && <div className="rf">{[...new Set([...done, ...(keyField as string[])])].join(' · ')}</div>}
-                  {t.journey === 'vas' && <div className="rf">Doesn't block the slot</div>}
-                  {s.next && s.kind !== 'done' && <div className="acts" style={{ marginTop: 7 }}><button className="btn sm demo" onClick={() => onDemo(t.id)}>Demo: {p.short} → {s.next[0].label}</button></div>}
-                </div>
-              );
-            })}
-          </div>
-          <div className="card">
-            <div className="ct">Timeline</div>
-            <div className="ftabs">
-              {(['all', 'rule', 'comms'] as const).map((k) => <button key={k} className={'fchip' + (feed === k ? ' on' : '')} onClick={() => setFeed(k)}>{k === 'all' ? 'All' : k === 'rule' ? 'Workflow rules' : 'Comms'}</button>)}
-            </div>
-            <div className="feed">
-              {o.activity.filter((a) => feed === 'all' || (feed === 'rule' ? a.kind === 'rule' || a.kind === 'gate' : a.kind === 'comms')).slice(0, 40).map((a, i) => (
-                <div key={i} className="fe">
-                  <span className={'ic ' + a.kind}>{a.kind === 'rule' ? 'R' : a.kind === 'comms' ? '✉' : a.kind === 'gate' ? '✓' : a.kind === 'block' ? '!' : '•'}</span>
-                  <div>
-                    <div className="ft">{a.text}</div>
-                    <div className="fm">{a.who} · {fmtAge(now - a.at)} ago{a.rule ? ' · ' + a.rule + ' ' + (RULES.find((r) => r.id === a.rule)?.when || '') : ''}</div>
+        <div className="ws-items">
+          {items.map((it) => {
+            const key = it.kind === 'slot' ? 'slot' : it.t.id;
+            const label = it.kind === 'slot' ? 'Delivery slot' : JOURNEYS[it.t.journey].name + (it.t.item ? ' · ' + it.t.item : '');
+            const st = it.kind === 'slot' ? (o.slot ? 'Booked' : clear ? 'Open' : 'Blocked') : stageDef(it.t).label;
+            const tone = it.kind === 'slot' ? (o.slot ? 'c-blue' : clear ? 'c-green' : 'c-amber') : stageDef(it.t).kind === 'done' ? 'c-green' : stageDef(it.t).kind === 'fail' ? 'c-red' : 'c-lv';
+            return (
+              <button key={key} className={'witem' + (sel === key ? ' on' : '')} onClick={() => { setSel(key); setMenu(false); }}>
+                <span>{label}</span><span className={'chip ' + tone}>{st}</span>
+              </button>
+            );
+          })}
+          {items.length === 0 && <div className="statusline" style={{ marginTop: 0 }}>No {PERSONAS[persona].short} task on this order yet. A trigger rule creates it when the order reaches your step — see the Teams tab.</div>}
+        </div>
+
+        {t && s && (
+          <>
+            <Stepper t={t} />
+            <div className="ws-body">
+              <div className="ws-h">{s.label}{slaState(t, now) === 'breach' && <span className="chip c-red">SLA breached</span>}{t.journey === 'vas' && <span className="chip c-grey">Doesn't block slot</span>}</div>
+              <div className="ws-guide">{s.guide || JOURNEYS[t.journey].why}</div>
+              {persona === 'rm' && <Tiles o={o} />}
+              {(s.fields || []).length > 0 && s.kind !== 'done' && (
+                <>
+                  <div className="lp-title" style={{ marginTop: 18 }}>Properties for this stage <span className="cs" style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>· * required by HubSpot to enter the next stage</span></div>
+                  <div className="fields">
+                    {s.fields!.map((fd) => (
+                      <div key={fd.key}>
+                        <Field fd={{ ...fd, label: fd.label + (nexts.some((n) => n.requires?.includes(fd.key)) ? ' *' : '') }} value={t.fields[fd.key]} editable onChange={(v) => onField(t.id, fd.key, v)} />
+                        {fd.hs && fd.hs !== 'NEW' && <div className="hs" style={{ marginTop: 3 }}>{fd.hs}</div>}
+                      </div>
+                    ))}
                   </div>
-                </div>
-              ))}
+                </>
+              )}
+              {s.kind === 'done' && <div className="statusline">Done {fmtAge(now - t.enteredAt)} ago. {s.auto ? `HubSpot today: ${s.auto}.` : ''}</div>}
+              <div className="statusline">
+                <b>{JOURNEYS[t.journey].hsPipeline}</b> → {s.hs}
+                {s.auto && s.kind !== 'done' && <div style={{ marginTop: 3 }}>Moves today: {s.auto}</div>}
+                {s.slaHours ? <div style={{ marginTop: 3 }}>SLA {s.slaHours}h{s.slaText ? ` · ${s.slaText}` : ''} · in stage {fmtAge(now - t.enteredAt)}</div> : null}
+              </div>
+              {primary && blockReason(primary) && <div className="blocked">{blockReason(primary)}</div>}
             </div>
+          </>
+        )}
+
+        {item?.kind === 'slot' && (
+          <div className="ws-body">
+            <div className="ws-h">Delivery slot</div>
+            <div className="ws-guide">The slot opens when Finance GFD, contract, Refurb GFD (which needs rego) and — for interstate cars — hub arrival are all done. This is HubSpot's DW06a check and OMS <span className="mono">isDeliveryBookingAllowed()</span>.</div>
+            <Tiles o={o} />
+            <div className="gatebox">
+              {gateStatus(o).map((g) => {
+                const na = 'na' in g && g.na; const ov = 'override' in g && g.override;
+                return (
+                  <div key={g.key} className={'gate ' + (ov ? 'ov' : g.ok ? 'ok' : 'no')}>
+                    <div className="gl">{g.ok ? '✓' : '○'} {g.label}</div>
+                    <div style={{ color: 'var(--mute)', marginTop: 3 }}>{na ? 'Not interstate' : ov ? 'Bypassed by RM' : g.ok ? 'Done' : `Owner: ${PERSONAS[g.owner].short}`}</div>
+                  </div>
+                );
+              })}
+            </div>
+            {!o.slot && (
+              <div className="fields" style={{ maxWidth: 420 }}>
+                <div className="fld"><label>Date</label><select id="slot-date" value={date} onChange={(e) => setDate(e.target.value)}>{['Mon 16 Nov', 'Tue 17 Nov', 'Wed 18 Nov', 'Thu 19 Nov'].map((d) => <option key={d}>{d}</option>)}</select></div>
+                <div className="fld"><label>Time</label><select id="slot-time" value={time} onChange={(e) => setTime(e.target.value)}>{['9:00 am', '11:00 am', '1:00 pm', '3:00 pm'].map((d) => <option key={d}>{d}</option>)}</select></div>
+              </div>
+            )}
+            {o.slot && <div className="statusline">Booked for <b>{o.slot.date} · {o.slot.time}</b> by {o.slot.by}. Confirmation sent by email and SMS.</div>}
+            {!clear && !o.slot && <div className="blocked">Blocked by: {gateStatus(o).filter((g) => !g.ok).map((g) => g.label).join(', ')}</div>}
+          </div>
+        )}
+
+        <div className="ws-foot">
+          <button className="btn" disabled={!t || !prev || s?.kind === 'done'} onClick={() => t && prev && onMove(t.id, prev)}>← Previous</button>
+          <span className="exit">
+            {t ? `Exit: ${JOURNEYS[t.journey].stages.find((x) => x.kind === 'done')?.label}` : item?.kind === 'slot' ? 'Exit: slot booked, customer confirmed' : ''}
+          </span>
+          <div className="split">
+            {t && primary && (
+              <button className="btn primary" disabled={!!blockReason(primary)} title={blockReason(primary)} onClick={() => doNext(primary)}>Next: {primary.label} →</button>
+            )}
+            {t && !primary && <button className="btn primary" disabled>{s?.kind === 'done' ? 'Completed' : 'Waiting on another team'}</button>}
+            {item?.kind === 'slot' && (
+              <button className="btn primary" disabled={!!o.slot || !clear} onClick={() => onBook(date, time, false)}>{o.slot ? 'Slot booked' : 'Next: Book & confirm →'}</button>
+            )}
+            <button className="btn primary caret" aria-label="More actions" onClick={() => setMenu(!menu)}>▾</button>
+            {menu && (
+              <div className="menu">
+                {nexts.slice(1).map((n) => {
+                  const r = blockReason(n);
+                  return <button key={n.label} className={n.tone === 'danger' ? 'danger' : ''} disabled={!!r} title={r} onClick={() => doNext(n)}>{n.label}{r && <span className="why2">{r}</span>}</button>;
+                })}
+                {item?.kind === 'slot' && !o.slot && !isDone(task(o, 'contract')) && (
+                  <button onClick={() => { onBypass(!o.bypassContract); setMenu(false); }}>{o.bypassContract ? 'Remove contract gate bypass' : 'Bypass contract gate (by_pass_contract_gfd_for_delivery_slots)'}</button>
+                )}
+                {(nexts.length > 1 || item?.kind === 'slot') && <div className="msep" />}
+                {extra.map((x) => <button key={x.label} onClick={() => { x.run(); setMenu(false); }}>{x.label}</button>)}
+              </div>
+            )}
           </div>
         </div>
       </div>
-    </>
+
+      {item ? <CarGpt o={o} item={item} now={now} /> : <div className="ws-right"><div className="gpt-head">✦ CarGPT</div><div className="gpt-scroll"><div className="gpt-card"><div className="gv">{aiSummary(o, now)}</div></div></div></div>}
+    </div>
   );
 }
+

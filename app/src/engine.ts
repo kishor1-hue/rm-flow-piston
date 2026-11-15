@@ -215,3 +215,18 @@ export function outstanding(o: Order) {
   if (isDone(p) || p?.stage === 'final') return 0;
   return total - o.depositPaid;
 }
+
+// Next actions offered at this stage for this order (state- and trade-in-specific ones filtered).
+export function availableNext(o: Order, t: Task) {
+  return (stageDef(t).next || []).filter((n) => (!n.states || n.states.includes(o.customer.state)) && (!n.tradeIn || !!o.tradeIn));
+}
+export function missingFields(t: Task, req?: string[]) {
+  return (req || []).filter((k) => t.fields[k] === undefined || t.fields[k] === '' || t.fields[k] === false);
+}
+// Previous: step back one stage along the happy path (HubSpot lets teams drag a card back).
+export function prevStage(t: Task) {
+  const stages = JOURNEYS[t.journey].stages;
+  const i = stages.findIndex((s) => s.key === t.stage);
+  for (let j = i - 1; j >= 0; j--) if (!stages[j].kind) return stages[j].key;
+  return null;
+}

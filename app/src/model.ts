@@ -29,7 +29,9 @@ export interface TransitionDef {
   label: string;
   to: string;
   tone?: 'primary' | 'danger' | 'ghost';
-  requires?: string[]; // field keys that must be filled first
+  requires?: string[]; // field keys that must be filled first (HubSpot conditional stage properties)
+  states?: string[]; // only offered for these customer states
+  tradeIn?: boolean; // only offered when the order has a trade-in
 }
 
 export interface StageDef {
@@ -41,6 +43,8 @@ export interface StageDef {
   next?: TransitionDef[];
   slaHours?: number;
   slaText?: string;
+  guide?: string; // what the agent does at this stage
+  auto?: string; // what moves it automatically today in HubSpot
 }
 
 export type JourneyId =
@@ -89,48 +93,90 @@ export const JOURNEYS: Record<JourneyId, JourneyDef> = {
     why: 'Contract must be signed before a delivery slot opens. Today the signed PDF is copied from DocuSign to Google Drive by hand.',
     stages: [
       {
-        key: 'sold', label: 'Vehicle sold', hs: 'Vehicle Sold', slaHours: 24,
+        key: 'sold', label: 'Vehicle sold', hs: 'Vehicle Sold', slaHours: 24, guide: 'Order is in. Start the dealership recall check before anything goes to the customer.',
+        auto: 'Created by 01_START when the order is Booked/Reserved',
         next: [{ label: 'Start recall check', to: 'recall', tone: 'primary' }],
       },
       {
-        key: 'recall', label: 'Recall check', hs: 'Recall check pending (Dealership)', slaHours: 24,
-        fields: [f('recallResult', 'Recall result', 'select', { options: ['No active recall', 'Recall found — dealership booked'] })],
+        key: 'recall', label: 'Recall check', hs: 'Recall check pending (Dealership)', slaHours: 24, guide: 'Check the VIN for open manufacturer recalls with the dealership.',
+        fields: [f('recallStatus', 'Recall check status', 'select', { options: ['No active recall', 'Recall found'], hs: 'Recall check status*' })],
         next: [
-          { label: 'Recall passed · send contract', to: 'sent', tone: 'primary', requires: ['recallResult'] },
-          { label: 'Recall failed', to: 'recallFail', tone: 'danger', requires: ['recallResult'] },
+          { label: 'Recall passed', to: 'passed', tone: 'primary', requires: ['recallStatus'] },
+          { label: 'Recall failed', to: 'recallFail', tone: 'danger', requires: ['recallStatus'] },
         ],
       },
       {
-        key: 'recallFail', label: 'Recall check failed', hs: 'Recall check failed', kind: 'fail',
-        fields: [f('recallEta', 'Dealership fix ETA', 'date')],
-        next: [{ label: 'Fixed · send contract', to: 'sent', tone: 'primary', requires: ['recallEta'] }],
+        key: 'recallFail', label: 'Recall check failed', hs: 'Recall check failed', kind: 'fail', guide: 'Dealership fixes the recall before the contract goes out.',
+        fields: [f('recallEta', 'Dealership fix ETA', 'date', { hs: 'NEW' })],
+        next: [{ label: 'Fixed · recall passed', to: 'passed', tone: 'primary', requires: ['recallEta'] }],
       },
       {
-        key: 'sent', label: 'Contract sent', hs: 'Contract Sent to Customer', slaHours: 48, slaText: 'Nudge customer after 48h',
-        fields: [f('envelope', 'DocuSign envelope', 'text', { hint: 'Auto-filled when sent from LeadVerse' })],
+        key: 'passed', label: 'Recall passed', hs: 'Recall check passed', slaHours: 24, guide: 'Send the contract of sale. The DocuSign envelope is generated with the tax invoice.',
+        fields: [
+          f('docHandling', 'Document handling', 'select', { options: ['DocuSign', 'Manual (in person)'], hs: 'Document Handling*' }),
+          f('taxInvoice', 'Tax invoice link', 'text', { hs: 'Tax invoice link*', hint: 'Generated from the order' }),
+        ],
         next: [
-          { label: 'Mark signed', to: 'signed', tone: 'primary' },
-          { label: 'Trade-in docs pending (Form 4)', to: 'form4', tone: 'ghost' },
+          { label: 'Send contract to customer', to: 'sent', tone: 'primary', requires: ['docHandling', 'taxInvoice'] },
+          { label: 'No automated envelope in DocuSign', to: 'noEnvelope', tone: 'ghost', requires: ['taxInvoice'] },
+          { label: 'CX action required', to: 'cx', tone: 'danger' },
         ],
       },
       {
-        key: 'form4', label: 'Form 4 / trade-in docs', hs: 'Pending Form 4/Trade-in Documents Signature', slaHours: 48,
-        next: [{ label: 'All signed', to: 'signed', tone: 'primary' }],
+        key: 'noEnvelope', label: 'No automated envelope', hs: 'No Automated Envelope in Docusign', kind: 'fail', guide: 'DocuSign did not create the envelope. Send it manually.',
+        next: [{ label: 'Sent manually', to: 'sent', tone: 'primary' }],
       },
-      { key: 'signed', label: 'Contract signed', hs: 'Contract Signed', kind: 'done' },
+      {
+        key: 'cx', label: 'CX action required', hs: 'CX Action Required', kind: 'fail', guide: 'Something must be fixed with the customer before the contract can go.',
+        fields: [f('cxReason', 'Reason for CX action', 'textarea', { hs: 'Reason for CX action*' })],
+        next: [{ label: 'Resolved · send contract', to: 'sent', tone: 'primary', requires: ['cxReason'] }],
+      },
+      {
+        key: 'sent', label: 'Contract sent', hs: 'Contract Sent to Customer', slaHours: 48, slaText: 'Nudge customer after 48h', guide: 'Waiting for the customer to sign. Nudge after 48 hours.',
+        auto: 'TW02b sets the deal contract status to "Contract not signed"',
+        fields: [
+          f('signedConfirm', 'Contract signed confirmation', 'check', { hs: 'Contract Signed Confirmation*' }),
+          f('cosLink', 'Contract of sale link', 'text', { hs: 'Contract of Sale Link*', hint: 'Pulled from DocuSign — no Drive copy (R7)' }),
+          f('transferLink', 'Transfer document link', 'text', { hs: 'Transfer document link*' }),
+        ],
+        next: [
+          { label: 'Contract signed', to: 'signed', tone: 'primary', requires: ['signedConfirm', 'cosLink', 'transferLink'] },
+          { label: 'Trade-in docs pending (Form 4)', to: 'form4', tone: 'ghost', tradeIn: true },
+          { label: 'Send for review', to: 'review', tone: 'ghost' },
+        ],
+      },
+      {
+        key: 'form4', label: 'Form 4 / trade-in docs', hs: 'Pending Form 4/Trade-in Documents Signature', slaHours: 48, guide: 'Trade-in transfer form still to be signed.',
+        fields: [
+          f('signedConfirm', 'Contract signed confirmation', 'check', { hs: 'Contract Signed Confirmation*' }),
+          f('cosLink', 'Contract of sale link', 'text', { hs: 'Contract of Sale Link*' }),
+          f('transferLink', 'Transfer document link', 'text', { hs: 'Transfer document link*' }),
+        ],
+        next: [{ label: 'All signed', to: 'signed', tone: 'primary', requires: ['signedConfirm', 'cosLink', 'transferLink'] }],
+      },
+      {
+        key: 'review', label: 'For review', hs: 'For Review', guide: 'Contract lead checks the paperwork before it is marked signed.',
+        fields: [
+          f('signedConfirm', 'Contract signed confirmation', 'check', { hs: 'Contract Signed Confirmation*' }),
+          f('cosLink', 'Contract of sale link', 'text', { hs: 'Contract of Sale Link*' }),
+          f('transferLink', 'Transfer document link', 'text', { hs: 'Transfer document link*' }),
+        ],
+        next: [{ label: 'Review passed · signed', to: 'signed', tone: 'primary', requires: ['signedConfirm', 'cosLink', 'transferLink'] }],
+      },
+      { key: 'signed', label: 'Contract signed', hs: 'Contract Signed', kind: 'done', auto: 'TW02a stamps Contract Signed Date on the deal' },
     ],
   },
 
   payment: {
     id: 'payment', name: 'Payment / finance', persona: 'finops', hsObject: 'Ticket', blocksSlot: true,
     hsPipeline: '01a Cash · 01b BYO · 01d In-house finance',
-    why: 'Finance GFD is one of the four slot gates. RMs today screenshot bank statements and ask FinOps to mark payments.',
+    why: 'Finance GFD is one of the slot gates. RMs today screenshot bank statements and ask FinOps to mark payments.',
     stages: [
-      { key: 'deposit', label: 'Deposit received', hs: 'Deposit remittance advice received', next: [{ label: 'Instalment / lender approval received (GFR)', to: 'instalment', tone: 'primary' }] },
-      { key: 'instalment', label: 'GFR · balance in progress', hs: 'First Instalment Paid / Approved from 3P Lender / Approved, Ready for Rego', slaHours: 72, next: [{ label: 'Final remittance received', to: 'final', tone: 'primary' }, { label: 'Short payment', to: 'short', tone: 'danger' }] },
-      { key: 'short', label: 'Awaiting additional deposit', hs: 'Awaiting Additional Deposit', kind: 'fail', slaHours: 48, next: [{ label: 'Balance received', to: 'final', tone: 'primary' }] },
-      { key: 'final', label: 'Final remittance', hs: 'Final remittance received / Loan settled', next: [{ label: 'Confirm Finance GFD', to: 'gfd', tone: 'primary' }] },
-      { key: 'gfd', label: 'Finance GFD', hs: 'Finance GFD / Loan Settled - GFD', kind: 'done' },
+      { key: 'deposit', label: 'Deposit received', hs: 'Deposit remittance advice received', guide: 'Deposit in. Waiting for the first instalment or lender approval.', auto: 'Created by 01_START', next: [{ label: 'Instalment / lender approval received (GFR)', to: 'instalment', tone: 'primary' }] },
+      { key: 'instalment', label: 'GFR · balance in progress', hs: 'First Instalment Paid / Approved from 3P Lender / Approved, Ready for Rego', slaHours: 72, guide: 'Customer money is committed, so car prep starts (GFR).', auto: 'Cash: TW01a counts split payments and moves the ticket. DW01b stamps GFR', next: [{ label: 'Final remittance received', to: 'final', tone: 'primary' }, { label: 'Short payment', to: 'short', tone: 'danger' }] },
+      { key: 'short', label: 'Awaiting additional deposit', hs: 'Awaiting Additional Deposit', kind: 'fail', slaHours: 48, guide: 'Customer paid less than due. RM chases the balance.', auto: 'TW01a: split payment count > 1', next: [{ label: 'Balance received', to: 'final', tone: 'primary' }] },
+      { key: 'final', label: 'Final remittance', hs: 'Final remittance received / Loan settled', guide: 'FinOps confirms the money has cleared.', fields: [f('gfdConfirm', 'Finance GFD confirmation', 'check', { hs: 'Finance GFD Confirmation*' })], next: [{ label: 'Confirm Finance GFD', to: 'gfd', tone: 'primary', requires: ['gfdConfirm'] }] },
+      { key: 'gfd', label: 'Finance GFD', hs: 'Finance GFD / Loan Settled - GFD', kind: 'done', auto: 'DW01e stamps Finance GFD Date on the deal' },
     ],
   },
 
@@ -139,39 +185,60 @@ export const JOURNEYS: Record<JourneyId, JourneyDef> = {
     hsPipeline: '05_Refurb Pre-GFD (RWC stages) · Bne Production RWC for QLD — created by DW02 at GFR',
     why: 'A failed roadworthy has no ETA in HubSpot today, so RMs chase the rework team. LeadVerse makes the ETA mandatory (R1).',
     stages: [
-      { key: 'awaiting', label: 'Awaiting RWC', hs: 'Awaiting Refurb / Awaiting RWC', slaHours: 24, next: [{ label: 'Start inspection', to: 'wip', tone: 'primary' }] },
+      { key: 'awaiting', label: 'Awaiting RWC', hs: 'Awaiting Refurb / Awaiting RWC', slaHours: 24, guide: 'Car is cleared for prep. Book it into the roadworthy bay.', auto: 'Created by DW02 when GFR Date is set', next: [{ label: 'Start inspection', to: 'wip', tone: 'primary' }] },
       {
-        key: 'wip', label: 'RWC in progress', hs: 'RWC WIP', slaHours: 24,
-        fields: [f('rwcNumber', 'RWC number', 'text', { hs: 'rwc_number' }), f('rwcIssue', 'RWC issue date', 'date', { hs: 'rwc_issue_date' })],
+        key: 'wip', label: 'RWC in progress', hs: 'RWC WIP', slaHours: 24, guide: 'Inspect the car. Pass it with the certificate details, or fail it with what needs fixing.',
+        fields: [
+          f('rwcConfirm', 'RWC completed confirmation', 'check', { hs: 'RWC Completed Confirmation*' }),
+          f('rwcNumber', 'RWC serial number', 'text', { hs: 'RWC serial number' }),
+          f('rwcExpiry', 'RWC expiry date', 'date', { hs: 'RWC expiry date' }),
+        ],
         next: [
-          { label: 'RWC passed', to: 'complete', tone: 'primary', requires: ['rwcNumber', 'rwcIssue'] },
+          { label: 'RWC passed', to: 'complete', tone: 'primary', requires: ['rwcConfirm', 'rwcNumber'] },
           { label: 'Fail · needs mechanical/panel', to: 'fail', tone: 'danger' },
         ],
       },
       {
-        key: 'fail', label: 'Requires mechanical / panel', hs: 'Requires Mechanical/Panel', kind: 'fail', slaHours: 48, slaText: 'Reminder to rework team if ETA missing after 48h',
+        key: 'fail', label: 'Requires mechanical / panel', hs: 'Requires Mechanical/Panel', kind: 'fail', slaHours: 48, slaText: 'Reminder to rework team if ETA missing after 48h', guide: 'Rework team fixes the car. The ETA is visible to the RM.',
         fields: [
-          f('failReason', 'Fail reason', 'select', { options: ['Brakes', 'Tyres', 'Suspension', 'Panel / body', 'Lights / electrical', 'Windscreen'] }),
+          f('roadworthyItem', 'Is this a roadworthy item?', 'select', { options: ['Yes', 'No'], hs: 'Is this a roadworthy item?*' }),
+          f('delayType', 'Delay', 'select', { options: ['Mechanical', 'Cosmetic'], hs: 'Delay (Cosmetic/Mechanical)*' }),
+          f('panelInfo', 'Panel information (detailed issue)', 'textarea', { hs: 'Panel Information*' }),
           f('reworkEta', 'Rework ETA (mandatory)', 'date', { hint: 'New field — not in HubSpot today', hs: 'NEW' }),
         ],
-        next: [{ label: 'Rework done · re-inspect', to: 'wip', tone: 'primary', requires: ['failReason', 'reworkEta'] }],
+        next: [{ label: 'Rework done · re-inspect', to: 'wip', tone: 'primary', requires: ['roadworthyItem', 'delayType', 'panelInfo', 'reworkEta'] }],
       },
-      { key: 'complete', label: 'RWC complete', hs: 'RWC Complete - To be Detailed', kind: 'done' },
+      { key: 'complete', label: 'RWC complete', hs: 'RWC Complete - To be Detailed', kind: 'done', auto: 'TW04 stamps RWC Completed Date, moves the deal to 5 and creates the 06 ticket' },
     ],
   },
 
   rego: {
     id: 'rego', name: 'Registration', persona: 'rego', hsObject: 'Ticket', blocksSlot: true,
     hsPipeline: '06_Registration',
-    why: 'Rego follows the roadworthy. VIC needs a certificate generated; QLD is submitted to TMR. The deal sits in 5: Awaiting Registration.',
+    why: 'Rego follows the roadworthy. VIC needs a certificate generated; QLD is submitted to TMR; NSW goes straight to complete.',
     stages: [
-      { key: 'todo', label: 'To be registered', hs: 'To be Registered', slaHours: 24, next: [{ label: 'Submit registration', to: 'submitted', tone: 'primary' }] },
       {
-        key: 'submitted', label: 'Submitted / VIC cert', hs: 'Generate VIC certificate · Registration Submitted (QLD)', slaHours: 48,
-        fields: [f('regoNumber', 'Rego number', 'text', { hs: 'regoNumber' }), f('regoExpiry', 'Rego expiry', 'date', { hs: 'regoExpiry' })],
-        next: [{ label: 'Registration complete', to: 'complete', tone: 'primary', requires: ['regoNumber', 'regoExpiry'] }],
+        key: 'todo', label: 'To be registered', hs: 'To be Registered', slaHours: 24, guide: "Register the car in the customer's state. Year, make, model, body, VIN and engine number come from the order (HubSpot makes you type them).",
+        auto: 'Created by TW04 when RWC is complete (owner by delivery state)',
+        fields: [
+          f('regoNumber', 'Registration number', 'text', { hs: 'Registration Number*' }),
+          f('checkDigit', 'Check digit (VIC)', 'text', { hs: 'Check digit*' }),
+          f('regoFees', 'Registration fees charged', 'number', { hs: 'Registration Fees Charged*' }),
+          f('tac', 'TAC charge (VIC)', 'number', { hs: 'TAC charge*' }),
+          f('regoPayMode', 'Registration payment mode (QLD)', 'select', { options: ['Company card', 'BPAY'], hs: 'Registration Payment Mode*' }),
+          f('regoExpiry', 'Registration expiry date', 'date', { hs: 'Registration Expiry Date*' }),
+        ],
+        next: [
+          { label: 'Generate VIC certificate', to: 'vic', tone: 'primary', states: ['VIC'], requires: ['regoNumber', 'checkDigit', 'regoFees', 'tac', 'regoExpiry'] },
+          { label: 'Submit registration to TMR', to: 'qld', tone: 'primary', states: ['QLD'], requires: ['regoNumber', 'regoFees', 'regoPayMode', 'regoExpiry'] },
+          { label: 'Registration complete', to: 'complete', tone: 'primary', states: ['NSW'], requires: ['regoNumber', 'regoExpiry'] },
+          { label: 'No rego — EGC sale', to: 'egc', tone: 'ghost' },
+        ],
       },
-      { key: 'complete', label: 'Registration complete', hs: 'Registration Complete', kind: 'done' },
+      { key: 'vic', label: 'VIC certificate', hs: 'Generate VIC certificate', guide: 'Certificate generated. Attach the public registration certificate.', fields: [f('regoCert', 'Public registration certificate', 'text', { hs: 'Publicly shared registration certificate' })], next: [{ label: 'Registration complete', to: 'complete', tone: 'primary' }] },
+      { key: 'qld', label: 'Submitted (QLD)', hs: 'Registration Submitted (QLD)', guide: 'Submitted to TMR with the RWC number, issue date and link, taken from the RWC task.', next: [{ label: 'Registration complete', to: 'complete', tone: 'primary' }] },
+      { key: 'egc', label: 'No rego — EGC sale', hs: 'No Rego - EGC Sale', kind: 'done' },
+      { key: 'complete', label: 'Registration complete', hs: 'Registration Complete', kind: 'done', auto: 'TW05 stamps Registered Date and moves the deal to 6' },
     ],
   },
 
@@ -181,28 +248,27 @@ export const JOURNEYS: Record<JourneyId, JourneyDef> = {
     why: 'Sales promises (e.g. "new tyres", "fix scratch") are free text today and nobody tracks them to done. QC fails loop back with no owner.',
     stages: [
       {
-        key: 'detail', label: 'To be detailed', hs: 'RWC Complete - To be Detailed', slaHours: 24,
-        fields: [f('promiseDone', 'Sales promises delivered', 'check', { hs: 'sales_refurb_promise' }), f('workLog', 'Work log (servicing, pads, tint…)', 'textarea', { hs: 'refurbishment_notes' })],
-        next: [{ label: 'Detail complete · request QC', to: 'qc', tone: 'primary', requires: ['promiseDone'] }],
+        key: 'detail', label: 'To be detailed', hs: 'RWC Complete - To be Detailed', slaHours: 24, guide: 'Deliver every sales promise, log the work, then detail the car.',
+        fields: [f('promiseDone', 'Sales promises delivered', 'check', { hs: 'sales_refurb_promise' }), f('detailConfirm', 'Detailing complete confirmation', 'check', { hs: 'Detailing Complete Confirmation*' }), f('workLog', 'Work log (servicing, pads, tint…)', 'textarea', { hs: 'refurbishment_notes' })],
+        next: [{ label: 'Detail complete · request QC', to: 'qc', tone: 'primary', requires: ['promiseDone', 'detailConfirm'] }],
       },
       {
-        key: 'qc', label: 'QC inspection', hs: 'Detail Complete - Inspection Required', slaHours: 24,
+        key: 'qc', label: 'QC inspection', hs: 'Detail Complete - Inspection Required', slaHours: 24, guide: 'Pre-GFD inspection. A pass gives Refurb GFD; a fail goes back with notes.',
         fields: [
-          f('qcExterior', 'Exterior & panels', 'select', { options: ['Pass', 'Fail'] }),
-          f('qcInterior', 'Interior & detail', 'select', { options: ['Pass', 'Fail'] }),
-          f('qcMech', 'Test drive & warning lights', 'select', { options: ['Pass', 'Fail'] }),
+          f('qcPassed', 'Passed pre-refurb GFD inspection', 'check', { hs: 'Passed Pre-Refurb GFD Inspection*' }),
+          f('qcNote', 'Failed inspection notes', 'textarea', { hs: 'Failed Pre-Refurb GFD Inspection Notes*' }),
         ],
         next: [
-          { label: 'QC passed · Refurb GFD', to: 'gfd', tone: 'primary', requires: ['qcExterior', 'qcInterior', 'qcMech'] },
-          { label: 'QC failed', to: 'qcFail', tone: 'danger' },
+          { label: 'QC passed · Refurb GFD', to: 'gfd', tone: 'primary', requires: ['qcPassed'] },
+          { label: 'QC failed', to: 'qcFail', tone: 'danger', requires: ['qcNote'] },
         ],
       },
       {
-        key: 'qcFail', label: 'QC failed', hs: 'QC FAIL / Inspection Failed', kind: 'fail', slaHours: 24,
-        fields: [f('qcNote', 'What failed', 'textarea'), f('qcEta', 'Fix ETA', 'date')],
-        next: [{ label: 'Fixed · re-inspect', to: 'qc', tone: 'primary', requires: ['qcNote', 'qcEta'] }],
+        key: 'qcFail', label: 'QC failed', hs: 'QC FAIL / Inspection Failed', kind: 'fail', slaHours: 24, guide: 'Fix what QC found and set a date.',
+        fields: [f('qcEta', 'Fix ETA', 'date', { hs: 'NEW' })],
+        next: [{ label: 'Fixed · re-inspect', to: 'qc', tone: 'primary', requires: ['qcEta'] }],
       },
-      { key: 'gfd', label: 'Refurb GFD', hs: 'Refurb GFD', kind: 'done' },
+      { key: 'gfd', label: 'Refurb GFD', hs: 'Refurb GFD', kind: 'done', auto: 'TW06 stamps Refurb GFD Date; DW06a checks the other gates 5 min later' },
     ],
   },
 
@@ -235,17 +301,19 @@ export const JOURNEYS: Record<JourneyId, JourneyDef> = {
     hsPipeline: '07_Active Deliveries (+ 02c Trade-in ops, Base44 form today)',
     why: 'Handover and trade-in forms live in Base44 and a Google Sheet today. Here they are part of the task (R8).',
     stages: [
-      { key: 'booked', label: 'To be delivered', hs: 'To be Delivered', next: [{ label: 'Delivering today', to: 'today', tone: 'primary' }], slaText: 'Needs a booked slot' },
+      { key: 'booked', label: 'To be delivered', hs: 'To be Delivered', guide: 'All gates are clear. Wait for the slot, then prep the car for handover.', auto: 'Created by DW06a when every gate is set (owner by delivery state)', next: [{ label: 'Delivering today', to: 'today', tone: 'primary' }, { label: 'Picked up by regional 3PL', to: 'threepl', tone: 'ghost' }] },
       {
-        key: 'today', label: 'Deliver today', hs: 'Deliver Today',
+        key: 'today', label: 'Deliver today', hs: 'Deliver Today', guide: 'Hand the car over. Capture odometer, condition and the customer\'s signature.',
         fields: [
+          f('deliveredAt', 'Actual delivery date', 'date', { hs: 'Actual delivery date*' }),
           f('odometer', 'Odometer at handover', 'number'),
           f('condition', 'Condition checklist', 'select', { options: ['All good', 'Issue noted — failed QC raised'] }),
           f('signed', 'Customer signed handover', 'check', { hs: 'handover_doc_url' }),
         ],
-        next: [{ label: 'Mark delivered', to: 'delivered', tone: 'primary', requires: ['odometer', 'condition', 'signed'] }],
+        next: [{ label: 'Mark delivered', to: 'delivered', tone: 'primary', requires: ['deliveredAt', 'odometer', 'condition', 'signed'] }],
       },
-      { key: 'delivered', label: 'Delivered', hs: 'Delivered', kind: 'done' },
+      { key: 'threepl', label: 'Picked up · regional 3PL', hs: 'Picked up - Regional 3PL', guide: 'Car is on the truck to a regional customer.', fields: [f('deliveredAt', 'Actual delivery date', 'date', { hs: 'Actual delivery date*' })], next: [{ label: 'Mark delivered', to: 'delivered', tone: 'primary', requires: ['deliveredAt'] }] },
+      { key: 'delivered', label: 'Delivered', hs: 'Delivered', kind: 'done', auto: 'TW08 stamps Actual Delivery Date, deal → 10, creates check-in tickets' },
     ],
   },
 

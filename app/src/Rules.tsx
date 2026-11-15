@@ -56,6 +56,9 @@ export function Rules() {
               {LIVE.map(([l, n]) => <div key={l} className="kpi"><div className="n">{n}</div><div className="l">{l}</div></div>)}
             </div>
           </div>
+          <div className="statusline" style={{ marginBottom: 14 }}>
+            Read from HubSpot pipeline settings on 15 Nov 2026. Properties marked <b>*</b> are HubSpot conditional stage properties: the team cannot drag a ticket into the next stage until they are filled. None of the post-deposit pipelines has pipeline rules, so a stage moves either by a person dragging the card or by a workflow (the "Moves today" column).
+          </div>
           {(Object.keys(JOURNEYS) as JourneyId[]).map((j) => {
             const d = JOURNEYS[j];
             return (
@@ -64,15 +67,16 @@ export function Rules() {
                 <div className="hs" style={{ marginTop: 4 }}>{d.hsObject} pipeline: {d.hsPipeline}</div>
                 <div className="why">{d.why}</div>
                 <table className="t" style={{ marginTop: 10 }}>
-                  <thead><tr><th>LeadVerse stage</th><th>HubSpot stage</th><th>Properties captured</th><th>SLA</th><th>Moves to</th></tr></thead>
+                  <thead><tr><th>LeadVerse stage</th><th>HubSpot stage</th><th>Properties captured</th><th>Moves today</th><th>SLA</th><th>Next actions</th></tr></thead>
                   <tbody>
                     {d.stages.map((s) => (
                       <tr key={s.key}>
                         <td><span className={'chip ' + (s.kind === 'done' ? 'c-green' : s.kind === 'fail' ? 'c-red' : 'c-grey')}>{s.label}</span></td>
                         <td className="mono">{s.hs}</td>
                         <td>{(s.fields || []).map((f) => <div key={f.key}>{f.label}{f.hs ? <span className="mono" style={{ color: f.hs === 'NEW' ? 'var(--amber-ink)' : 'var(--mute-2)' }}> · {f.hs === 'NEW' ? 'new field' : f.hs}</span> : null}</div>)}</td>
+                        <td style={{ fontSize: 12.5, color: 'var(--mute)' }}>{s.auto || 'Manual drag'}</td>
                         <td>{s.slaHours ? `${s.slaHours}h` : '—'}</td>
-                        <td style={{ fontSize: 12.5 }}>{(s.next || []).map((n) => <div key={n.label}>{n.label}</div>)}</td>
+                        <td style={{ fontSize: 12.5 }}>{(s.next || []).map((n) => <div key={n.label}>{n.label}{n.states ? ` (${n.states.join('/')})` : ''}{n.tradeIn ? ' (trade-in)' : ''}</div>)}</td>
                       </tr>
                     ))}
                   </tbody>

@@ -1,6 +1,7 @@
 import { JOURNEYS, PERSONAS, type FieldDef } from './model';
-import { ageHours, canMove, fmtAge, HOUR, slaState, stageDef, type Order, type Task } from './engine';
+import { ageHours, availableNext, canMove, fmtAge, HOUR, slaState, stageDef, type Order, type Task } from './engine';
 
+export { Field };
 export function sampleValue(fd: FieldDef): string | boolean {
   if (fd.type === 'check') return true;
   if (fd.type === 'select') return fd.options![0];
@@ -63,6 +64,7 @@ export function TaskCard({ order, t, editable, now, onField, onMove, compact, de
   const idx = def.stages.findIndex((x) => x.key === t.stage);
   const shownStages = def.stages.filter((x) => x.kind !== 'fail' || x.key === t.stage);
   const fields = s.fields || [];
+  const nexts = availableNext(order, t);
   const missing = (req?: string[]) => (req || []).filter((k) => t.fields[k] === undefined || t.fields[k] === '' || t.fields[k] === false);
   const p = PERSONAS[def.persona];
 
@@ -100,9 +102,9 @@ export function TaskCard({ order, t, editable, now, onField, onMove, compact, de
           {fields.map((fd) => <Field key={fd.key} fd={fd} value={t.fields[fd.key]} editable={editable} onChange={(v) => onField(fd.key, v)} />)}
         </div>
       )}
-      {editable && s.next && (
+      {editable && nexts.length > 0 && (
         <div className="acts">
-          {s.next.map((n) => {
+          {nexts.map((n) => {
             const miss = missing(n.requires);
             const chk = canMove(order, t, n.to);
             return (
@@ -115,8 +117,8 @@ export function TaskCard({ order, t, editable, now, onField, onMove, compact, de
           })}
         </div>
       )}
-      {editable && s.next?.some((n) => !canMove(order, t, n.to).ok) && (
-        <div className="blocked">{s.next.map((n) => canMove(order, t, n.to).reason).find(Boolean)}</div>
+      {editable && nexts.some((n) => !canMove(order, t, n.to).ok) && (
+        <div className="blocked">{nexts.map((n) => canMove(order, t, n.to).reason).find(Boolean)}</div>
       )}
       {demo && !editable && s.next && (
         <div className="acts">

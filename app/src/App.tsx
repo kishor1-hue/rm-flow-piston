@@ -91,7 +91,7 @@ export default function App() {
           </select>
         </header>
 
-        <main className="main">
+        <main className={'main' + (view === 'order' ? ' full' : '')}>
           {view === 'board' && (
             <>
               <div className="head"><div><h1>{title}</h1><div className="sub">{persona === 'rm' ? 'Every order you own, grouped by where it is. Stages are derived from the other teams’ tasks.' : 'Your tasks across all orders, grouped by stage. Update inline or open the order.'}</div></div></div>
