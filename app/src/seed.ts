@@ -41,7 +41,7 @@ const SEEDS: SeedDef[] = [
   },
   {
     id: 'LV-9HG3', name: 'Noah Wilson', state: 'VIC', suburb: 'Geelong', carState: 'NSW', mode: 'Cash', car: ['Ford', 'Ranger XLT', 2021, 55100, 'Black'], price: 52990, deposit: 1000, depositH: 96,
-    steps: [[95, 'onboard', 'recap', { callOutcome: 'Connected' }], [94, 'onboard', 'done', { recapTemplate: 'Welcome + outstanding amount' }], [90, 'transit', 'booked'], [60, 'transit', 'moving', { transitEta: '2026-11-17' }], [93, 'contract', 'recall', { recallResult: 'No active recall' }], [92, 'contract', 'sent'], [70, 'contract', 'signed'], [80, 'payment', 'instalment'], [50, 'rwc', 'wip']],
+    steps: [[95, 'onboard', 'recap', { callOutcome: 'Connected' }], [94, 'onboard', 'done', { recapTemplate: 'Welcome + outstanding amount' }], [90, 'transit', 'booked'], [60, 'transit', 'moving', { transitEta: '2026-11-17' }], [93, 'contract', 'recall', { recallResult: 'No active recall' }], [92, 'contract', 'sent'], [70, 'contract', 'signed'], [92, 'payment', 'instalment'], [50, 'rwc', 'wip']],
   },
   {
     id: 'LV-4WS8', name: 'Isla Brown', state: 'QLD', suburb: 'Southport', mode: 'Cash', car: ['Toyota', 'RAV4 GX Hybrid', 2022, 41000, 'White'], price: 42490, deposit: 1000, depositH: 100,
@@ -67,7 +67,7 @@ const SEEDS: SeedDef[] = [
   {
     id: 'LV-5TR0', name: 'Oliver King', state: 'VIC', suburb: 'Frankston', mode: 'Cars24 finance', lender: 'Plenti', car: ['Nissan', 'X-Trail ST', 2020, 70100, 'White'], price: 27490, deposit: 1000, tradeIn: ['2014 Toyota Yaris', 5200], depositH: 90,
     promises: ['Paint touch-up driver door'],
-    steps: [[89, 'onboard', 'recap', { callOutcome: 'Connected' }], [88, 'onboard', 'done', { recapTemplate: 'Welcome + trade-in paperwork' }], [87, 'contract', 'recall', { recallResult: 'No active recall' }], [86, 'contract', 'sent'], [60, 'contract', 'form4'], [80, 'payment', 'instalment'], [84, 'rwc', 'wip'], [78, 'rwc', 'complete', { rwcNumber: 'RW-2219102', rwcIssue: '2026-11-12' }], [60, 'rego', 'submitted'], [30, 'rego', 'complete', { regoNumber: '2AB 7QW', regoExpiry: '2027-11-14' }], [10, 'refurb', 'qc', { promiseDone: true, workLog: 'Door touch-up, detail' }]],
+    steps: [[89, 'onboard', 'recap', { callOutcome: 'Connected' }], [88, 'onboard', 'done', { recapTemplate: 'Welcome + trade-in paperwork' }], [87, 'contract', 'recall', { recallResult: 'No active recall' }], [86, 'contract', 'sent'], [60, 'contract', 'form4'], [80, 'payment', 'instalment'], [79, 'rwc', 'wip'], [78, 'rwc', 'complete', { rwcNumber: 'RW-2219102', rwcIssue: '2026-11-12' }], [60, 'rego', 'submitted'], [30, 'rego', 'complete', { regoNumber: '2AB 7QW', regoExpiry: '2027-11-14' }], [10, 'refurb', 'qc', { promiseDone: true, workLog: 'Door touch-up, detail' }]],
   },
   {
     id: 'LV-8LM4', name: 'Ruby Scott', state: 'NSW', suburb: 'Bondi', mode: 'Cash', car: ['Volkswagen', 'Golf 110TSI', 2019, 64300, 'White'], price: 24990, deposit: 1000, depositH: 34,

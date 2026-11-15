@@ -96,7 +96,7 @@ export function rmStage(o: Order): RmStageKey {
 // HubSpot deal stage the order would show today.
 export function hsDealStage(o: Order) {
   const s = rmStage(o);
-  if (s === 'new') return '1: Deposit Paid';
+  if (s === 'new' || !hasGfr(o)) return '1: Deposit Paid';
   if (s === 'delivered') return '9: Delivered';
   if (s === 'booked') return '8: Delivery Booked: GFD';
   if (o.interstate && !isDone(task(o, 'transit'))) return task(o, 'transit')?.stage === 'moving' ? '3: Interstate Transit In Progress' : '2: Awaiting Interstate Transit';
@@ -115,8 +115,18 @@ export function createOrder(base: Omit<Order, 'tasks' | 'activity' | 'bypassCont
   createTask(o, 'contract', at, 'R-01');
   createTask(o, 'payment', at, 'R-01');
   log(o, { at, who: 'Workflow', kind: 'comms', text: 'Automated email: "Your car is reserved" sent to customer' });
-  if (o.interstate) createTask(o, 'transit', at, 'R-02');
   return o;
+}
+
+// GFR (Go For Refurb): the customer's money is committed, so car prep can start.
+// HubSpot: DW01b stamps GFR Date from the finance ticket stage, DW02 creates the 05 ticket.
+export const hasGfr = (o: Order) => !!task(o, 'rwc');
+function fireGfr(o: Order, at: number) {
+  if (hasGfr(o)) return;
+  log(o, { at, who: 'Workflow', kind: 'rule', rule: 'R-03', text: `GFR reached (${o.paymentMode === 'Cash' ? 'first instalment paid' : o.paymentMode === 'BYO' ? 'approved by 3P lender' : 'loan approved'}) — car prep starts` });
+  createTask(o, 'rwc', at, 'R-03');
+  if (o.interstate) createTask(o, 'transit', at, 'R-02');
+  if (o.paymentMode !== 'Cash') o.vas.forEach((v) => createTask(o, 'vas', at, 'R-04', v.name));
 }
 
 export interface MoveResult { ok: boolean; reason?: string }
@@ -124,6 +134,8 @@ export interface MoveResult { ok: boolean; reason?: string }
 export function canMove(o: Order, t: Task, to: string): MoveResult {
   if (t.journey === 'refurb' && to === 'gfd' && !isDone(task(o, 'rego')))
     return { ok: false, reason: 'Registration is not complete yet (rule R-06). Refurb GFD opens once rego is done.' };
+  if (t.journey === 'delivery' && to === 'today' && !o.slot)
+    return { ok: false, reason: 'No slot booked yet (rule R-08). The RM or the customer books the slot first.' };
   return { ok: true };
 }
 
@@ -135,18 +147,16 @@ export function move(o: Order, t: Task, to: string, by: PersonaId | 'system', at
   }
   const def = JOURNEYS[t.journey];
   const from = stageDef(t).label;
-  const wasClear = gatesClear(o);
   t.stage = to;
   t.enteredAt = at;
   const s = stageDef(t);
   log(o, { at, who: who(by), kind: 'stage', persona: def.persona, text: `${def.name}${t.item ? ' · ' + t.item : ''}: ${from} → ${s.label}` });
 
   // trigger rules
-  if (t.journey === 'onboard' && to === 'done') {
+  if (t.journey === 'onboard' && to === 'done')
     log(o, { at, who: 'Workflow', kind: 'comms', text: 'Recap email sent from template with deal fields merged' });
-    createTask(o, 'rwc', at, 'R-03');
-  }
-  if (t.journey === 'payment' && to === 'gfd') o.vas.forEach((v) => createTask(o, 'vas', at, 'R-04', v.name));
+  if (t.journey === 'payment' && to !== 'deposit') fireGfr(o, at);
+  if (t.journey === 'payment' && to === 'gfd' && o.paymentMode === 'Cash') o.vas.forEach((v) => createTask(o, 'vas', at, 'R-04', v.name));
   if (t.journey === 'rwc' && to === 'complete') {
     createTask(o, 'rego', at, 'R-05');
     createTask(o, 'refurb', at, 'R-05');
@@ -157,16 +167,22 @@ export function move(o: Order, t: Task, to: string, by: PersonaId | 'system', at
     createTask(o, 'checkin', at, 'R-09');
     log(o, { at, who: 'Workflow', kind: 'comms', text: 'Thank-you email + warranty pack queued' });
   }
-  if (!wasClear && gatesClear(o) && !o.slot)
-    log(o, { at, who: 'Workflow', kind: 'gate', rule: 'R-07', text: 'All four gates clear — slot booking open. RM notified, customer sent a self-book link' });
+  checkGates(o, at);
   return { ok: true };
+}
+
+// HubSpot DW06a: once every gate is set, create the 07 delivery ticket (owner by delivery state).
+function checkGates(o: Order, at: number) {
+  if (!gatesClear(o) || task(o, 'delivery')) return;
+  log(o, { at, who: 'Workflow', kind: 'gate', rule: 'R-07', text: 'All gates clear — Handover task created for Delivery, slot booking open, customer sent a self-book link' });
+  createTask(o, 'delivery', at, 'R-07');
 }
 
 export function bookSlot(o: Order, date: string, time: string, by: PersonaId, at: number, override = false) {
   o.slot = { date, time, by: who(by), override };
   log(o, { at, who: who(by), kind: 'stage', persona: 'rm', text: `Delivery slot booked: ${date} · ${time}${override ? ' (RM override)' : ''}` });
-  log(o, { at, who: 'Workflow', kind: 'comms', text: `Instant confirmation sent by email + SMS to ${o.customer.phone}` });
-  createTask(o, 'delivery', at, 'R-08');
+  log(o, { at, who: 'Workflow', kind: 'comms', rule: 'R-08', text: `Instant confirmation sent by email + SMS to ${o.customer.phone}` });
+  if (!task(o, 'delivery')) createTask(o, 'delivery', at, 'R-08');
 }
 
 export function setBypass(o: Order, on: boolean, at: number) {

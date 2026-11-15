@@ -29,7 +29,7 @@ export default function App() {
       const before = c.activity.length;
       fn(c);
       const fresh = c.activity.slice(0, c.activity.length - before).filter((a) => a.kind === 'rule' || a.kind === 'gate' || a.kind === 'block');
-      if (fresh.length) setToast(fresh);
+      if (fresh.length) setToast(fresh.reverse());
       return c;
     }));
     setNow(Date.now());

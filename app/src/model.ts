@@ -79,7 +79,7 @@ export const JOURNEYS: Record<JourneyId, JourneyDef> = {
         fields: [f('recapTemplate', 'Template', 'select', { options: ['Welcome + outstanding amount', 'Welcome + finance next steps', 'Welcome + trade-in paperwork'] })],
         next: [{ label: 'Send recap & start car prep', to: 'done', tone: 'primary', requires: ['recapTemplate'] }],
       },
-      { key: 'done', label: 'Onboarded', hs: '→ 4: Awaiting RWC', kind: 'done' },
+      { key: 'done', label: 'Onboarded', hs: 'Deal stays at 1 until GFR', kind: 'done' },
     ],
   },
 
@@ -126,8 +126,8 @@ export const JOURNEYS: Record<JourneyId, JourneyDef> = {
     hsPipeline: '01a Cash · 01b BYO · 01d In-house finance',
     why: 'Finance GFD is one of the four slot gates. RMs today screenshot bank statements and ask FinOps to mark payments.',
     stages: [
-      { key: 'deposit', label: 'Deposit received', hs: 'Deposit remittance advice received', next: [{ label: 'Instalment received', to: 'instalment', tone: 'primary' }] },
-      { key: 'instalment', label: 'Balance in progress', hs: 'First Instalment Paid / Awaiting 3P lender / Application lodged', slaHours: 72, next: [{ label: 'Final remittance received', to: 'final', tone: 'primary' }, { label: 'Short payment', to: 'short', tone: 'danger' }] },
+      { key: 'deposit', label: 'Deposit received', hs: 'Deposit remittance advice received', next: [{ label: 'Instalment / lender approval received (GFR)', to: 'instalment', tone: 'primary' }] },
+      { key: 'instalment', label: 'GFR · balance in progress', hs: 'First Instalment Paid / Approved from 3P Lender / Approved, Ready for Rego', slaHours: 72, next: [{ label: 'Final remittance received', to: 'final', tone: 'primary' }, { label: 'Short payment', to: 'short', tone: 'danger' }] },
       { key: 'short', label: 'Awaiting additional deposit', hs: 'Awaiting Additional Deposit', kind: 'fail', slaHours: 48, next: [{ label: 'Balance received', to: 'final', tone: 'primary' }] },
       { key: 'final', label: 'Final remittance', hs: 'Final remittance received / Loan settled', next: [{ label: 'Confirm Finance GFD', to: 'gfd', tone: 'primary' }] },
       { key: 'gfd', label: 'Finance GFD', hs: 'Finance GFD / Loan Settled - GFD', kind: 'done' },
@@ -136,7 +136,7 @@ export const JOURNEYS: Record<JourneyId, JourneyDef> = {
 
   rwc: {
     id: 'rwc', name: 'Roadworthy (RWC)', persona: 'rego', hsObject: 'Ticket', blocksSlot: true,
-    hsPipeline: '05_Refurb Pre-GFD (RWC stages) · Bne Production RWC for QLD',
+    hsPipeline: '05_Refurb Pre-GFD (RWC stages) · Bne Production RWC for QLD — created by DW02 at GFR',
     why: 'A failed roadworthy has no ETA in HubSpot today, so RMs chase the rework team. LeadVerse makes the ETA mandatory (R1).',
     stages: [
       { key: 'awaiting', label: 'Awaiting RWC', hs: 'Awaiting Refurb / Awaiting RWC', slaHours: 24, next: [{ label: 'Start inspection', to: 'wip', tone: 'primary' }] },
@@ -235,7 +235,7 @@ export const JOURNEYS: Record<JourneyId, JourneyDef> = {
     hsPipeline: '07_Active Deliveries (+ 02c Trade-in ops, Base44 form today)',
     why: 'Handover and trade-in forms live in Base44 and a Google Sheet today. Here they are part of the task (R8).',
     stages: [
-      { key: 'booked', label: 'To be delivered', hs: 'To be Delivered', next: [{ label: 'Delivering today', to: 'today', tone: 'primary' }] },
+      { key: 'booked', label: 'To be delivered', hs: 'To be Delivered', next: [{ label: 'Delivering today', to: 'today', tone: 'primary' }], slaText: 'Needs a booked slot' },
       {
         key: 'today', label: 'Deliver today', hs: 'Deliver Today',
         fields: [
@@ -283,15 +283,15 @@ export interface RuleDef {
 }
 
 export const RULES: RuleDef[] = [
-  { id: 'R-01', when: 'Deposit paid on the order', then: 'Create RM onboarding task (1h SLA) + Contract task + Payment task by payment mode', persona: ['rm', 'finops'], hsToday: 'Deal enters 1: Deposit Paid → workflow creates 01a/01b/01d finance ticket and 02 "Customer Documents" ticket', evidence: 'Finance + contract tickets created 2–7 s after the stage change' },
-  { id: 'R-02', when: 'Deposit paid and car is in another state', then: 'Create Interstate transit task for Delivery', persona: ['delivery'], hsToday: 'Deal → 2: Awaiting Interstate Transit, 03/04 tickets', evidence: '16 interstate deals since Aug' },
-  { id: 'R-03', when: 'RM completes onboarding', then: 'Create Roadworthy task for Registration & RWC', persona: ['rego'], hsToday: 'RM moves deal to 4: Awaiting RWC → workflow creates 05 Refurb ticket "[Required]"', evidence: '05 ticket created 2 s after deal entered 4: Awaiting RWC' },
-  { id: 'R-04', when: 'Payment reaches Finance GFD', then: 'Create one VAS install task per product for Refurb (non-blocking)', persona: ['refurb'], hsToday: '01a ticket → Finance GFD → workflow creates a 05b ticket per VAS product', evidence: '3 VAS tickets created 34 s after Finance GFD closed' },
-  { id: 'R-05', when: 'RWC complete', then: 'Create Registration task + Refurb detail & QC task (with sales promises)', persona: ['rego', 'refurb'], hsToday: '05 → RWC Complete moves deal to 5: Awaiting Registration → workflow creates 06 ticket', evidence: '06 ticket created 3 s after deal entered 5' },
-  { id: 'R-06', when: 'Refurb GFD reached before Registration complete', then: 'Block — Refurb GFD needs rego complete', persona: ['refurb'], hsToday: 'Deal only enters 6: Awaiting Refurb GFD after 06 closes', evidence: 'Deal → 6 within 20 s of 06 closing' },
-  { id: 'R-07', when: 'All four gates clear', then: 'Open slot booking for RM and the customer; notify RM', persona: ['rm'], hsToday: 'OMS isDeliveryBookingAllowed(): refurbGfd ∧ contractSigned ∧ financeGfd ∧ (arrivedAtHub ∨ !interstate) — dates back-synced from HubSpot via webhook', evidence: 'b2c-oms-au OrderUtility.java' },
-  { id: 'R-08', when: 'RM or customer books a slot', then: 'Create Handover task for Delivery + instant email/SMS to customer (R4)', persona: ['delivery'], hsToday: 'Deal → 8: Delivery Booked → 07 ticket; manual bookings send no confirmation', evidence: '07 ticket created 1 s after deal entered 8' },
-  { id: 'R-09', when: 'Handover marked delivered', then: 'Create Warranty + Post-delivery check-in tasks for CX; close the RM order', persona: ['cx'], hsToday: '07 → Delivered → deal 9 → 08 + 07b tickets', evidence: '08 created 17 s, 07b 5 min after delivery' },
+  { id: 'R-01', when: 'Order booked or reserved (deposit paid)', then: 'Assign RM by payment mode + delivery state; create RM onboarding task (1h SLA), Contract task and Payment task by payment mode', persona: ['rm', 'finops'], hsToday: '01_START – Create ticket in Finance and Contract Creations Pipelines · 01_a – Deal Owner Assignment for Post BC Orders', evidence: 'Workflow trigger: Order Status is Booked or Reserved. Tickets land 2–7 s after deposit' },
+  { id: 'R-02', when: 'GFR reached and the car is in another state', then: 'Create Interstate transit task for Delivery (pre-transit inspection first)', persona: ['delivery'], hsToday: 'DW02 branches on Interstate Transit Required → 03 Pre-Interstate Inspection ticket; DW03 creates 04 transit ticket on Finance/Refurb GFIT date', evidence: 'DW02 + DW03 enrolment criteria' },
+  { id: 'R-03', when: 'GFR — Go For Refurb (customer money committed)', then: 'Create Roadworthy task for Registration & RWC; deal leaves 1: Deposit Paid', persona: ['rego'], hsToday: 'DW01b stamps GFR Date when the finance ticket reaches: Cash First Instalment Paid / Awaiting Additional Deposit / Finance GFD · BYO Approved from 3P Lender / Remittance / Loan Settled · IHF Approved, Ready for Rego / Settled (or prime-cohort IHF interstate). DW02 then sets 4: Awaiting RWC and creates the 05 ticket', evidence: 'DW01b + DW02 trigger conditions, read 15 Nov 2026' },
+  { id: 'R-04', when: 'VAS opted: IHF/BYO at GFR · Cash at Finance GFD', then: 'Create one VAS install task per product for Refurb (non-blocking)', persona: ['refurb'], hsToday: '"VAS ticket pipelines – Tinting / Exterior Protection / Servicing / Scratch n dent" — one workflow per product. Exterior Protection: "Group 1 INHF/BYO > use GFR, Group 2 Cash > use Finance GFD"', evidence: '3 VAS tickets on a cash order created 34 s after Finance GFD' },
+  { id: 'R-05', when: 'RWC complete (confirmation = Yes)', then: 'Create Registration task + Refurb detail & QC task (with sales promises)', persona: ['rego', 'refurb'], hsToday: 'TW04_RWC Ticket → RWC Completed Date, L03, deal 5: Awaiting Registration; registration ticket owner set by delivery state', evidence: '06 ticket created 3 s after deal entered 5' },
+  { id: 'R-06', when: 'Registration complete (or QLD submitted)', then: 'Refurb GFD can be given; deal waits on refurb', persona: ['refurb'], hsToday: 'TW05 Registration Complete → Registered Date, L04, deal 6: Awaiting Refurb GFD if Refurb GFD unknown', evidence: 'TW05 workflow description' },
+  { id: 'R-07', when: 'Refurb GFD + Finance GFD + Registered + Contract signed (+ hub arrival if interstate)', then: 'Create Handover task for Delivery (owner by delivery state); open slot booking; notify RM. If any is missing → Awaiting blockers', persona: ['delivery', 'rm'], hsToday: 'DW06a: Refurb GFD known → wait 5 min → branch "GFD" (Finance GFD ∧ Registered ∧ Refurb GFD ∧ Contract Signed ∧ no 07 ticket) → 8: Delivery Booked: GFD + 07 ticket; else 7: Awaiting on blockers. DW06b keeps re-checking. OMS isDeliveryBookingAllowed() mirrors it', evidence: 'DW06a branch conditions, read 15 Nov 2026' },
+  { id: 'R-08', when: 'RM or customer books a slot', then: 'Instant email + SMS confirmation (R4); Handover task can move to Deliver today', persona: ['delivery'], hsToday: 'Slot sits on booked_delivery_date / time slot; manual bookings in HubSpot or B2C send no confirmation', evidence: 'Reimagine doc R4 (P0)' },
+  { id: 'R-09', when: 'Handover marked delivered', then: 'Create Warranty + Post-delivery check-in tasks for CX; close the RM order', persona: ['cx'], hsToday: 'TW08 Delivered → Actual Delivery Date, deal 10: Awaiting Transfer, post-delivery tickets; DW07b warranty ticket at stage 9/10', evidence: '08 created 17 s, 07b 5 min after delivery' },
   { id: 'R-10', when: 'RWC fails', then: 'ETA required to save; reminder to rework team at 48h; RM sees ETA on the order', persona: ['rego', 'rm'], hsToday: 'Requires Mechanical/Panel stage exists, no ETA property', evidence: 'Reimagine doc R1 (P0)' },
 ];
 

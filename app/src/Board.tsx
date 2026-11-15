@@ -28,6 +28,7 @@ export function rmNext(o: Order, now: number): { text: string; tone: string } {
   }
   if (s === 'prep') {
     const rwc = task(o, 'rwc');
+    if (!rwc) return { text: o.paymentMode === 'Cash' ? 'Waiting for GFR · first instalment' : o.paymentMode === 'BYO' ? 'Waiting for GFR · 3P lender approval' : 'Waiting for GFR · loan approval', tone: 'c-amber' };
     if (rwc?.stage === 'fail') return { text: `RWC failed · rework ETA ${rwc.fields.reworkEta || 'missing'}`, tone: 'c-red' };
     const ref = task(o, 'refurb');
     if (ref?.stage === 'qcFail') return { text: `QC failed · fix ETA ${ref.fields.qcEta || 'missing'}`, tone: 'c-red' };

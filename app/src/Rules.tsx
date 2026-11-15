@@ -106,7 +106,8 @@ export function Rules() {
               ))}
             </tbody>
           </table>
-          <div className="statusline" style={{ marginTop: 12 }}>Proposed change (R3): VAS, warranty and tint never block. RM can bypass the contract gate (the existing HubSpot property <span className="mono">by_pass_contract_gfd_for_delivery_slots</span>), logged on the timeline.</div>
+          <div className="statusline" style={{ marginTop: 12 }}>HubSpot's own check is stricter: <b>DW06a</b> waits 5 minutes after Refurb GFD, then needs Finance GFD ∧ <b>Registered Date</b> ∧ Refurb GFD ∧ Contract Signed and no open 07 ticket. Only then does it set 8: Delivery Booked: GFD and create the 07 delivery ticket (owner by delivery state). Otherwise the deal goes to 7: Awaiting on blockers, and <b>DW06b</b> keeps re-checking. In LeadVerse, Refurb GFD cannot be given before rego is complete, so the registration check is built in.</div>
+          <div className="statusline" style={{ marginTop: 8 }}>Proposed change (R3): VAS, warranty and tint never block. RM can bypass the contract gate (the existing HubSpot property <span className="mono">by_pass_contract_gfd_for_delivery_slots</span>), logged on the timeline.</div>
         </div>
       )}
 
