@@ -24,118 +24,117 @@ function aiSummary(o: Order, now: number) {
 
 type Item = { kind: 'task'; t: Task } | { kind: 'slot' };
 
-function LeftPanel({ o, now, persona, onDemo }: { o: Order; now: number; persona: PersonaId; onDemo: (tid: string) => void }) {
-  const [tab, setTab] = useState<'order' | 'teams' | 'activity'>('order');
+type KV = [string, string];
+
+function LeftPanel({ o, now, persona, onDemo, onComms, collapsed, toggle }: {
+  o: Order; now: number; persona: PersonaId; onDemo: (tid: string) => void; onComms: (text: string) => void; collapsed: boolean; toggle: () => void;
+}) {
+  const [tab, setTab] = useState<'contact' | 'order' | 'car' | 'pricing' | 'teams' | 'activity'>('contact');
   const [feed, setFeed] = useState<'all' | 'rule' | 'comms'>('all');
+  const [find, setFind] = useState('');
+  const [note, setNote] = useState('');
+  const [vis, setVis] = useState('Everyone');
+  const [follow, setFollow] = useState(true);
   const others = o.tasks.filter((t) => !PERSONA_JOURNEYS[persona].includes(t.journey));
   const rego = task(o, 'rego');
-  const initials = o.customer.name.split(' ').map((x) => x[0]).join('');
+  const [first, ...rest] = o.customer.name.split(' ');
+  const groups: Record<string, KV[]> = {
+    contact: [['First Name', first], ['Last Name', rest.join(' ')], ['Email', o.customer.email], ['Phone With Country Code', o.customer.phone], ['Suburb', o.customer.suburb], ['State', o.customer.state], ['Relationship Manager', 'Priyanka A.']],
+    order: [['Order ID', o.id], ['Appointment ID', o.apptId], ['Order stage', RM_STAGES.find((s) => s.key === rmStage(o))!.label], ['HubSpot deal stage', hsDealStage(o)], ['Payment mode', o.paymentMode + (o.lender ? ' · ' + o.lender : '')], ['Delivery mode', o.deliveryMode], ['Delivery slot', o.slot ? `${o.slot.date} · ${o.slot.time}` : 'Not booked'], ...o.promises.map((p): KV => ['Sales promise', p])],
+    car: [['Car', `${o.car.year} ${o.car.make} ${o.car.model}`], ['Odometer', o.car.km.toLocaleString() + ' km'], ['Colour', o.car.colour], ['VIN', o.car.vin], ['Located at', o.car.hub], ...(o.interstate ? [['Interstate', `${o.car.hubState} → ${o.customer.state}`] as KV] : []), ['Rego', (rego?.fields.regoNumber as string) || 'Not yet']],
+    pricing: [['Car price', money(o.price)], ...o.vas.map((v): KV => ['+ ' + v.name, money(v.price)]), ...(o.tradeIn ? [['− Trade-in', money(o.tradeIn.value)] as KV] : []), ['Outstanding', outstanding(o) > 0 ? money(outstanding(o)) : 'Paid']],
+  };
+  const fl = find.trim().toLowerCase();
+  const boxes = (kv: KV[]) => kv.filter(([k, v]) => !fl || (k + v).toLowerCase().includes(fl)).map(([k, v], i) => (
+    <div key={k + i} className="fbox"><label>{k}</label><div>{v || '-'}</div></div>
+  ));
+  const TABS = [['contact', '☺ Contact'], ['order', '▤ Order'], ['car', '⛟ Car'], ['pricing', '$ Pricing'], ['teams', `Teams · ${others.filter((t) => stageDef(t).kind !== 'done').length}`], ['activity', 'Activity']] as const;
   return (
-    <div className="ws-left">
-      <div className="ws-id">
-        <div className="avatar">{initials}</div>
-        <div style={{ minWidth: 0 }}>
-          <div className="ws-name">{o.customer.name}</div>
-          <span className="chip c-lv">{RM_STAGES.find((s) => s.key === rmStage(o))!.label}</span>
-        </div>
-      </div>
-      <div className="ws-tabs">
-        {([['order', 'Order'], ['teams', `Teams · ${others.filter((t) => stageDef(t).kind !== 'done').length}`], ['activity', 'Activity']] as const).map(([k, l]) => (
-          <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>
-        ))}
-      </div>
-      <div className="ws-scroll">
-        {tab === 'order' && (
-          <>
-            <div className="summary-box"><b>✦ Summary</b><p>{aiSummary(o, now)}</p></div>
-            <div className="lp-title">Customer</div>
-            <div className="kvbox">
-              <div><span>Phone</span><b>{o.customer.phone}</b></div>
-              <div><span>Email</span><b style={{ fontSize: 12 }}>{o.customer.email}</b></div>
-              <div><span>State</span><b>{o.customer.suburb}, {o.customer.state}</b></div>
-              <div><span>RM</span><b>Priyanka A.</b></div>
-            </div>
-            <div className="lp-title">Car</div>
-            <div className="kvbox">
-              <div><span>Order · Appt</span><b className="mono">{o.id} · …{o.apptId.slice(-6)}</b></div>
-              <div><span>Car</span><b>{o.car.year} {o.car.make} {o.car.model}</b></div>
-              <div><span>Odometer</span><b>{o.car.km.toLocaleString()} km · {o.car.colour}</b></div>
-              <div><span>VIN</span><b className="mono">{o.car.vin}</b></div>
-              <div><span>Located at</span><b>{o.car.hub}</b></div>
-              {o.interstate && <div><span>Interstate</span><b style={{ color: 'var(--amber-ink)' }}>{o.car.hubState} → {o.customer.state}</b></div>}
-              <div><span>Rego</span><b>{(rego?.fields.regoNumber as string) || 'Not yet'}</b></div>
-            </div>
-            <div className="lp-title">Money</div>
-            <div className="kvbox">
-              <div><span>Payment mode</span><b>{o.paymentMode}{o.lender ? ' · ' + o.lender : ''}</b></div>
-              <div><span>Car price</span><b>{money(o.price)}</b></div>
-              {o.vas.map((v) => <div key={v.name}><span>+ {v.name}</span><b>{money(v.price)}</b></div>)}
-              {o.tradeIn && <div><span>− Trade-in</span><b>{money(o.tradeIn.value)}</b></div>}
-              <div><span>Outstanding</span><b style={{ color: outstanding(o) > 0 ? 'var(--amber-ink)' : 'var(--green-ink)' }}>{outstanding(o) > 0 ? money(outstanding(o)) : 'Paid'}</b></div>
-            </div>
-            <div className="lp-title">Handover</div>
-            <div className="kvbox">
-              <div><span>Mode</span><b>{o.deliveryMode}</b></div>
-              <div><span>Slot</span><b>{o.slot ? `${o.slot.date} · ${o.slot.time}` : 'Not booked'}</b></div>
-              {o.promises.map((p) => <div key={p}><span>Sales promise</span><b>{p}</b></div>)}
-            </div>
-          </>
-        )}
-        {tab === 'teams' && (
-          <>
-            <div className="cs" style={{ marginBottom: 6 }}>Other teams' tasks on this order. Read-only for {PERSONAS[persona].short}.</div>
-            {others.length === 0 && <div className="statusline">No other team has a task yet.</div>}
-            {others.map((t) => {
-              const def = JOURNEYS[t.journey];
-              const s = stageDef(t);
-              const p = PERSONAS[def.persona];
-              const facts = Object.entries(t.fields)
-                .filter(([k, v]) => v && ['rwcNumber', 'regoNumber', 'reworkEta', 'transitEta', 'installDate', 'qcEta', 'panelInfo'].includes(k))
-                .map(([k, v]) => `${({ rwcNumber: 'RWC', regoNumber: 'Rego', reworkEta: 'Rework ETA', transitEta: 'Hub ETA', installDate: 'Install', qcEta: 'QC fix ETA', panelInfo: 'Issue' } as Record<string, string>)[k]} ${v}`);
-              const nx = availableNext(o, t)[0];
-              return (
-                <div key={t.id} className="ro-card">
-                  <div className="rh"><span className="who" style={{ background: p.color }} />{def.name}{t.item ? ' · ' + t.item : ''}<span className="chip c-grey" style={{ marginLeft: 'auto' }}>{p.short}</span></div>
-                  <div className="rs"><span className={'chip ' + (s.kind === 'done' ? 'c-green' : s.kind === 'fail' ? 'c-red' : 'c-lv')}>{s.label}</span> <span className="age" style={{ marginLeft: 6 }}>{fmtAge(now - t.enteredAt)}</span></div>
-                  {facts.length > 0 && <div className="rf">{facts.join(' · ')}</div>}
-                  {t.journey === 'vas' && <div className="rf">Doesn't block the slot</div>}
-                  {nx && s.kind !== 'done' && <div className="acts" style={{ marginTop: 7 }}><button className="btn sm demo" onClick={() => onDemo(t.id)}>Demo: {p.short} → {nx.label}</button></div>}
+    <div className={'ws-left' + (collapsed ? ' shut' : '')}>
+      <button className="lp-tog" aria-label={collapsed ? 'Show details' : 'Hide details'} onClick={toggle}>{collapsed ? '›' : '‹'}</button>
+      {!collapsed && (
+        <>
+          <div className="ws-id">
+            <div className="avatar">{first[0]}</div>
+            <div className="ws-name">{o.customer.name}</div>
+            <button className={'follow' + (follow ? ' on' : '')} onClick={() => setFollow(!follow)}>{follow ? '◉ Following · 1' : '○ Follow'}</button>
+          </div>
+          <div className="lp-search"><input placeholder="Search" value={find} onChange={(e) => setFind(e.target.value)} /></div>
+          <div className="ws-tabs">
+            {TABS.map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}
+          </div>
+          <div className="ws-scroll">
+            {tab in groups && (
+              <>
+                {tab === 'contact' && <div className="summary-box"><b>✦ Summary</b><p>{aiSummary(o, now)}</p></div>}
+                <div className="lp-title">{({ contact: 'Contact', order: 'Order', car: 'Car', pricing: 'Pricing' } as Record<string, string>)[tab]}</div>
+                {boxes(groups[tab])}
+              </>
+            )}
+            {tab === 'teams' && (
+              <>
+                <div className="cs" style={{ marginBottom: 6 }}>Other teams' tasks on this order. Read-only for {PERSONAS[persona].short}.</div>
+                {others.length === 0 && <div className="statusline">No other team has a task yet.</div>}
+                {others.map((t) => {
+                  const def = JOURNEYS[t.journey];
+                  const s = stageDef(t);
+                  const p = PERSONAS[def.persona];
+                  const facts = Object.entries(t.fields)
+                    .filter(([k, v]) => v && ['rwcNumber', 'regoNumber', 'reworkEta', 'transitEta', 'installDate', 'qcEta', 'panelInfo'].includes(k))
+                    .map(([k, v]) => `${({ rwcNumber: 'RWC', regoNumber: 'Rego', reworkEta: 'Rework ETA', transitEta: 'Hub ETA', installDate: 'Install', qcEta: 'QC fix ETA', panelInfo: 'Issue' } as Record<string, string>)[k]} ${v}`);
+                  const nx = availableNext(o, t)[0];
+                  return (
+                    <div key={t.id} className="ro-card">
+                      <div className="rh"><span className="who" style={{ background: p.color }} />{def.name}{t.item ? ' · ' + t.item : ''}<span className="chip c-grey" style={{ marginLeft: 'auto' }}>{p.short}</span></div>
+                      <div className="rs"><span className={'chip ' + (s.kind === 'done' ? 'c-green' : s.kind === 'fail' ? 'c-red' : 'c-lv')}>{s.label}</span> <span className="age" style={{ marginLeft: 6 }}>{fmtAge(now - t.enteredAt)}</span></div>
+                      {facts.length > 0 && <div className="rf">{facts.join(' · ')}</div>}
+                      {t.journey === 'vas' && <div className="rf">Doesn't block the slot</div>}
+                      {nx && s.kind !== 'done' && <div className="acts" style={{ marginTop: 7 }}><button className="btn sm demo" onClick={() => onDemo(t.id)}>Demo: {p.short} → {nx.label}</button></div>}
+                    </div>
+                  );
+                })}
+              </>
+            )}
+            {tab === 'activity' && (
+              <>
+                <div className="ftabs" style={{ marginTop: 0 }}>
+                  {(['all', 'rule', 'comms'] as const).map((k) => <button key={k} className={'fchip' + (feed === k ? ' on' : '')} onClick={() => setFeed(k)}>{k === 'all' ? 'All' : k === 'rule' ? 'Workflow rules' : 'Notes & comms'}</button>)}
                 </div>
-              );
-            })}
-          </>
-        )}
-        {tab === 'activity' && (
-          <>
-            <div className="ftabs" style={{ marginTop: 0 }}>
-              {(['all', 'rule', 'comms'] as const).map((k) => <button key={k} className={'fchip' + (feed === k ? ' on' : '')} onClick={() => setFeed(k)}>{k === 'all' ? 'All' : k === 'rule' ? 'Workflow rules' : 'Comms'}</button>)}
-            </div>
-            <div className="feed">
-              {o.activity.filter((a) => feed === 'all' || (feed === 'rule' ? a.kind === 'rule' || a.kind === 'gate' : a.kind === 'comms')).slice(0, 50).map((a, i) => (
-                <div key={i} className="fe">
-                  <span className={'ic ' + a.kind}>{a.kind === 'rule' ? 'R' : a.kind === 'comms' ? '✉' : a.kind === 'gate' ? '✓' : a.kind === 'block' ? '!' : '•'}</span>
-                  <div>
-                    <div className="ft">{a.text}</div>
-                    <div className="fm">{a.who} · {fmtAge(now - a.at)} ago{a.rule ? ' · ' + a.rule : ''}</div>
-                  </div>
+                <div className="feed">
+                  {o.activity.filter((a) => feed === 'all' || (feed === 'rule' ? a.kind === 'rule' || a.kind === 'gate' : a.kind === 'comms')).slice(0, 50).map((a, i) => (
+                    <div key={i} className="fe">
+                      <span className={'ic ' + a.kind}>{a.kind === 'rule' ? 'R' : a.kind === 'comms' ? '✉' : a.kind === 'gate' ? '✓' : a.kind === 'block' ? '!' : '•'}</span>
+                      <div>
+                        <div className="ft">{a.text}</div>
+                        <div className="fm">{a.who} · {fmtAge(now - a.at)} ago{a.rule ? ' · ' + a.rule : ''}</div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </>
+            )}
+          </div>
+          <div className="lp-foot">
+            <div className="vis">◎ Visible to <select value={vis} onChange={(e) => setVis(e.target.value)}><option>Everyone</option><option>My team</option><option>Only me</option></select></div>
+            <div className="note">
+              <input placeholder="⌀ Add a note…" value={note} onChange={(e) => setNote(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && note.trim()) { onComms(`Note (${vis}): ${note.trim()}`); setNote(''); } }} />
+              <button disabled={!note.trim()} onClick={() => { onComms(`Note (${vis}): ${note.trim()}`); setNote(''); }}>Add</button>
             </div>
-          </>
-        )}
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
-function Stepper({ t }: { t: Task }) {
+function Stepper({ t, open, toggle }: { t: Task; open: boolean; toggle: () => void }) {
   const def = JOURNEYS[t.journey];
   const cur = stageDef(t);
   const path = def.stages.filter((s) => !s.kind || s.kind === 'done' || s.key === t.stage);
   const ci = path.findIndex((s) => s.key === t.stage);
   const shown = path.filter((s, i) => s.kind !== 'done' || i === path.length - 1 || s.key === t.stage);
   return (
-    <div className="stepper">
+    <div className={'stepper' + (open ? '' : ' mini')}>
       {shown.map((s) => {
         const i = path.indexOf(s);
         const st = s.key === t.stage ? (s.kind === 'fail' ? 'fail' : cur.kind === 'done' ? 'done' : 'act') : i < ci ? 'done' : '';
@@ -143,10 +142,11 @@ function Stepper({ t }: { t: Task }) {
           <div key={s.key} className={'sp ' + st}>
             <div className="spdot">{st === 'done' ? '✓' : st === 'fail' ? '!' : ''}</div>
             <div className="spl">{s.label}</div>
-            <div className="sps">{st === 'done' ? 'Done' : st === 'act' ? 'In progress' : st === 'fail' ? 'Blocked' : 'Pending'}</div>
+            <div className="sps">{st === 'done' ? 'completed' : st === 'act' ? 'in progress' : st === 'fail' ? 'blocked' : 'pending'}</div>
           </div>
         );
       })}
+      <button className="stog" aria-label={open ? 'Collapse steps' : 'Expand steps'} onClick={toggle}>{open ? '⌃' : '⌄'}</button>
     </div>
   );
 }
@@ -174,12 +174,46 @@ function Tiles({ o }: { o: Order }) {
   );
 }
 
-function CarGpt({ o, item, now }: { o: Order; item: Item; now: number }) {
+// Payment ledger + price breakup, laid out like the Leadverse Final Payment screen.
+function Payments({ o, t }: { o: Order; t: Task }) {
+  const s = stageDef(t);
+  const dep = Math.round(o.price * 0.05 / 100) * 100;
+  const paidAll = s.kind === 'done' || s.key === 'final' || s.key === 'short';
+  const rows: [string, string, number, string, string][] = [
+    ['DEPOSIT', 'stripe_' + o.id.slice(3).toLowerCase(), dep, 'SUCCESS', 'Stripe'],
+    ...(t.stage !== 'deposit' ? [[o.paymentMode === 'Cash' ? 'FIRST_INSTALMENT' : 'LENDER_APPROVAL', o.paymentMode === 'Cash' ? 'bank_' + o.apptId.slice(-6) : (o.lender || 'Lender'), o.paymentMode === 'Cash' ? Math.round(o.price * 0.3) : 0, 'SUCCESS', o.paymentMode === 'Cash' ? 'FinOps' : (o.lender || 'Lender')] as [string, string, number, string, string]] : []),
+    ...(paidAll ? [['FINAL_PAYMENT', 'bank_' + o.id.slice(-4).toLowerCase(), Math.max(0, outstanding(o)), s.key === 'short' ? 'SHORT' : 'SUCCESS', 'FinOps'] as [string, string, number, string, string]] : []),
+  ];
+  return (
+    <>
+      <div className="lp-title" style={{ marginTop: 18 }}>Payments</div>
+      <div className="tbox">
+        <table className="tl-t"><thead><tr><th>Payment Type</th><th>Transaction ID</th><th>Amount</th><th>Status</th><th>Approved by</th></tr></thead>
+          <tbody>{rows.map((r) => <tr key={r[0]}><td>{r[0]}</td><td className="mono">{r[1]}</td><td>{r[2] ? money(r[2]) : '—'}</td><td><span className={'code ' + (r[3] === 'SUCCESS' ? 'c-green' : 'c-amber')}>{r[3]}</span></td><td>{r[4]}</td></tr>)}</tbody>
+        </table>
+      </div>
+      <div className="lp-title" style={{ marginTop: 18 }}>Price breakup</div>
+      <div className="tbox">
+        <table className="tl-t"><thead><tr><th>Label</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
+          <tbody>
+            <tr><td>Car price</td><td style={{ textAlign: 'right' }}>{money(o.price)}</td></tr>
+            {o.vas.map((v) => <tr key={v.name}><td>{v.name}</td><td style={{ textAlign: 'right' }}>{money(v.price)}</td></tr>)}
+            {o.tradeIn && <tr><td>Trade-in</td><td style={{ textAlign: 'right' }}>− {money(o.tradeIn.value)}</td></tr>}
+            <tr><td><b>Outstanding</b></td><td style={{ textAlign: 'right' }}><b>{outstanding(o) > 0 ? money(outstanding(o)) : 'Paid'}</b></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function CarGpt({ o, item, now, open, toggle }: { o: Order; item?: Item; now: number; open: boolean; toggle: () => void }) {
   const [q, setQ] = useState('');
   const [answers, setAnswers] = useState<{ q: string; a: string }[]>([]);
   const first = o.customer.name.split(' ')[0];
   let say = '', context: string[] = [], watch: string[] = [];
-  if (item.kind === 'slot') {
+  if (!item) say = aiSummary(o, now);
+  else if (item.kind === 'slot') {
     say = `"Hi ${first}, it's Priyanka from CARS24 — great news, your ${o.car.make} ${o.car.model} is ready. Which day suits you for the handover at ${o.car.hub.split(' · ')[0]}?"`;
     context = [`Gates: ${gateStatus(o).map((g) => `${g.label} ${g.ok ? '✓' : '○'}`).join(' · ')}`];
     if (o.vas.length) context.push(`VAS (${o.vas.map((v) => v.name).join(', ')}) never holds the slot.`);
@@ -211,9 +245,10 @@ function CarGpt({ o, item, now }: { o: Order; item: Item; now: number }) {
     setAnswers([...answers, { q, a }]);
     setQ('');
   };
+  if (!open) return <div className="ws-right shut"><button className="gpt-rail" onClick={toggle}><span className="gpt-chev">‹</span><span className="gpt-star">✦</span><span>CarGPT</span></button></div>;
   return (
     <div className="ws-right">
-      <div className="gpt-head">✦ CarGPT</div>
+      <div className="gpt-head">✦ CarGPT<button className="gpt-x" aria-label="Collapse CarGPT" onClick={toggle}>›</button></div>
       <div className="gpt-scroll">
         <div className="gpt-card"><div className="gk">Say this</div><div className="gv">{say}</div></div>
         {context.length > 0 && <div className="gpt-card"><div className="gk">Use the context</div>{context.map((c) => <div key={c} className="gv">{c}</div>)}</div>}
@@ -228,8 +263,8 @@ function CarGpt({ o, item, now }: { o: Order; item: Item; now: number }) {
   );
 }
 
-export function OrderView({ o, persona, now, onField, onMove, onDemo, onBook, onBypass, onComms, back }: {
-  o: Order; persona: PersonaId; now: number; back: () => void;
+export function OrderView({ o, persona, now, focus, onFocus, onField, onMove, onDemo, onBook, onBypass, onComms }: {
+  o: Order; persona: PersonaId; now: number; back: () => void; focus?: string; onFocus: (tid?: string) => void;
   onField: (tid: string, k: string, v: string | boolean) => void; onMove: (tid: string, to: string) => void; onDemo: (tid: string) => void;
   onBook: (d: string, t: string, ov: boolean) => void; onBypass: (on: boolean) => void; onComms: (text: string) => void;
 }) {
@@ -240,11 +275,16 @@ export function OrderView({ o, persona, now, onField, onMove, onDemo, onBook, on
     if (persona === 'rm' && (!open || (rmStage(o) === 'ready' && !o.slot))) return 'slot';
     return open?.id || mine[0]?.id || (persona === 'rm' ? 'slot' : '');
   };
-  const [sel, setSel] = useState<string>(defaultKey);
+  const pick = () => (focus && mine.some((t) => t.id === focus) ? focus : defaultKey());
+  const [sel, setSelRaw] = useState<string>(pick);
+  const setSel = (k: string) => { setSelRaw(k); onFocus(k === 'slot' ? undefined : k); };
   const [menu, setMenu] = useState(false);
+  const [leftShut, setLeftShut] = useState(false);
+  const [gptOpen, setGptOpen] = useState(false);
+  const [stepsOpen, setStepsOpen] = useState(true);
   const [date, setDate] = useState('Tue 17 Nov');
   const [time, setTime] = useState('11:00 am');
-  useEffect(() => { setSel(defaultKey()); setMenu(false); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [o.id, persona]);
+  useEffect(() => { setSel(pick()); setMenu(false); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [o.id, persona]);
   const item: Item | undefined = sel === 'slot' ? (persona === 'rm' ? { kind: 'slot' } : undefined) : (() => { const t = mine.find((x) => x.id === sel); return t ? { kind: 'task' as const, t } : undefined; })();
   const t = item?.kind === 'task' ? item.t : undefined;
   const s = t ? stageDef(t) : undefined;
@@ -268,17 +308,12 @@ export function OrderView({ o, persona, now, onField, onMove, onDemo, onBook, on
   ];
 
   return (
-    <div className="ws">
-      <LeftPanel o={o} now={now} persona={persona} onDemo={onDemo} />
+    <div className={'ws' + (leftShut ? ' lshut' : '') + (gptOpen ? '' : ' rshut')}>
+      <LeftPanel o={o} now={now} persona={persona} onDemo={onDemo} onComms={onComms} collapsed={leftShut} toggle={() => setLeftShut(!leftShut)} />
 
       <div className="ws-mid">
-        <div className="ws-bar">
-          <button className="btn sm" onClick={back}>← Board</button>
-          <div className="ws-title"><b>{o.id}</b> · {o.car.year} {o.car.make} {o.car.model}</div>
-          <span className="chip c-grey" title="What the HubSpot deal would show">HubSpot deal: {hsDealStage(o)}</span>
-        </div>
-
         <div className="ws-items">
+          <span className="ws-oid"><b>{o.id}</b> · {o.car.year} {o.car.make} {o.car.model}</span>
           {items.map((it) => {
             const key = it.kind === 'slot' ? 'slot' : it.t.id;
             const label = it.kind === 'slot' ? 'Delivery slot' : JOURNEYS[it.t.journey].name + (it.t.item ? ' · ' + it.t.item : '');
@@ -290,16 +325,18 @@ export function OrderView({ o, persona, now, onField, onMove, onDemo, onBook, on
               </button>
             );
           })}
-          {items.length === 0 && <div className="statusline" style={{ marginTop: 0 }}>No {PERSONAS[persona].short} task on this order yet. A trigger rule creates it when the order reaches your step — see the Teams tab.</div>}
+          <span className="chip c-grey" style={{ marginLeft: 'auto' }} title="What the HubSpot deal would show">HubSpot deal: {hsDealStage(o)}</span>
+          {items.length === 0 && <div className="statusline" style={{ marginTop: 0, width: '100%' }}>No {PERSONAS[persona].short} task on this order yet. A trigger rule creates it when the order reaches your step — see the Teams tab.</div>}
         </div>
 
         {t && s && (
           <>
-            <Stepper t={t} />
+            <Stepper t={t} open={stepsOpen} toggle={() => setStepsOpen(!stepsOpen)} />
             <div className="ws-body">
               <div className="ws-h">{s.label}{slaState(t, now) === 'breach' && <span className="chip c-red">SLA breached</span>}{t.journey === 'vas' && <span className="chip c-grey">Doesn't block slot</span>}</div>
               <div className="ws-guide">{s.guide || JOURNEYS[t.journey].why}</div>
               {persona === 'rm' && <Tiles o={o} />}
+              {t.journey === 'payment' && <Payments o={o} t={t} />}
               {(s.fields || []).length > 0 && s.kind !== 'done' && (
                 <>
                   <div className="lp-title" style={{ marginTop: 18 }}>Properties for this stage <span className="cs" style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>· * required by HubSpot to enter the next stage</span></div>
@@ -352,17 +389,17 @@ export function OrderView({ o, persona, now, onField, onMove, onDemo, onBook, on
         )}
 
         <div className="ws-foot">
-          <button className="btn" disabled={!t || !prev || s?.kind === 'done'} onClick={() => t && prev && onMove(t.id, prev)}>← Previous</button>
+          <button className="btn prevb" disabled={!t || !prev || s?.kind === 'done'} onClick={() => t && prev && onMove(t.id, prev)}>Previous</button>
           <span className="exit">
             {t ? `Exit: ${JOURNEYS[t.journey].stages.find((x) => x.kind === 'done')?.label}` : item?.kind === 'slot' ? 'Exit: slot booked, customer confirmed' : ''}
           </span>
           <div className="split">
             {t && primary && (
-              <button className="btn primary" disabled={!!blockReason(primary)} title={blockReason(primary)} onClick={() => doNext(primary)}>Next: {primary.label} →</button>
+              <button className="btn primary" disabled={!!blockReason(primary)} title={blockReason(primary)} onClick={() => doNext(primary)}>Next: {primary.label}</button>
             )}
             {t && !primary && <button className="btn primary" disabled>{s?.kind === 'done' ? 'Completed' : 'Waiting on another team'}</button>}
             {item?.kind === 'slot' && (
-              <button className="btn primary" disabled={!!o.slot || !clear} onClick={() => onBook(date, time, false)}>{o.slot ? 'Slot booked' : 'Next: Book & confirm →'}</button>
+              <button className="btn primary" disabled={!!o.slot || !clear} onClick={() => onBook(date, time, false)}>{o.slot ? 'Slot booked' : 'Next: Book & confirm'}</button>
             )}
             <button className="btn primary caret" aria-label="More actions" onClick={() => setMenu(!menu)}>▾</button>
             {menu && (
@@ -382,7 +419,7 @@ export function OrderView({ o, persona, now, onField, onMove, onDemo, onBook, on
         </div>
       </div>
 
-      {item ? <CarGpt o={o} item={item} now={now} /> : <div className="ws-right"><div className="gpt-head">✦ CarGPT</div><div className="gpt-scroll"><div className="gpt-card"><div className="gv">{aiSummary(o, now)}</div></div></div></div>}
+      <CarGpt o={o} item={item} now={now} open={gptOpen} toggle={() => setGptOpen(!gptOpen)} />
     </div>
   );
 }

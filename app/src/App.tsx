@@ -1,22 +1,32 @@
 import { useEffect, useMemo, useState } from 'react';
-import { JOURNEYS, PERSONAS, RULES, WORKING_PERSONAS, type PersonaId } from './model';
-import { bookSlot, move, rmStage, setBypass, stageDef, type Activity, type Order } from './engine';
+import { JOURNEYS, PERSONAS, RULES, type PersonaId } from './model';
+import { bookSlot, move, setBypass, stageDef, type Activity, type Order } from './engine';
 import { buildSeed } from './seed';
 import { Board } from './Board';
 import { OrderView } from './OrderView';
 import { Rules } from './Rules';
+import { Tasks } from './Tasks';
 import { sampleValue } from './TaskCard';
 
-type View = 'board' | 'orders' | 'order' | 'rules';
+type View = 'list' | 'board' | 'order' | 'rules';
+
+// Persona dropdown, named the way Leadverse names its task personas.
+const MENU: { id: PersonaId; label: string }[] = [
+  { id: 'rm', label: 'RM' }, { id: 'finops', label: 'FinOps' }, { id: 'refurb', label: 'VAS Refurb · QC' },
+  { id: 'rego', label: 'Registration' }, { id: 'delivery', label: 'Delivery' }, { id: 'cx', label: 'CX' },
+];
 
 export default function App() {
   const [now, setNow] = useState(() => Date.now());
   const [orders, setOrders] = useState<Order[]>(() => buildSeed(Date.now()));
   const [persona, setPersona] = useState<PersonaId>('rm');
-  const [view, setView] = useState<View>('board');
+  const [view, setView] = useState<View>('list');
   const [sel, setSel] = useState<string | null>(null);
+  const [focus, setFocus] = useState<string | undefined>();
   const [q, setQ] = useState('');
   const [toast, setToast] = useState<Activity[] | null>(null);
+  const [pmenu, setPmenu] = useState(false);
+  const [railOpen, setRailOpen] = useState(true);
 
   useEffect(() => { const i = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(i); }, []);
   useEffect(() => { if (!toast) return; const i = setTimeout(() => setToast(null), 5200); return () => clearTimeout(i); }, [toast]);
@@ -47,82 +57,83 @@ export default function App() {
       move(o, t, n.to, JOURNEYS[t.journey].persona, Date.now());
     });
 
-  const open = (id: string) => { setSel(id); setView('order'); window.scrollTo(0, 0); };
+  const open = (id: string, tid?: string) => { setSel(id); setFocus(tid); setView('order'); setRailOpen(false); window.scrollTo(0, 0); };
+  const toList = () => { setView('list'); setRailOpen(true); };
   const order = orders.find((o) => o.id === sel);
   const hits = useMemo(() => (q.length < 2 ? [] : orders.filter((o) => (o.id + o.customer.name + o.car.make + o.car.model + o.apptId).toLowerCase().includes(q.toLowerCase())).slice(0, 6)), [q, orders]);
-
-  const title = view === 'rules' ? 'HubSpot → LeadVerse logic' : view === 'orders' ? 'All orders' : `${PERSONAS[persona].label} work board`;
+  const curTask = order?.tasks.find((t) => t.id === focus);
+  const nav = (v: View) => { setView(v); setRailOpen(true); };
 
   return (
-    <div className="app">
+    <div className={'app' + (railOpen ? '' : ' slim')} onClick={() => setPmenu(false)}>
       <aside className="rail">
-        <div className="brand"><div className="blogo">L</div><div className="bname">LeadVerse</div><span className="bgeo">AU</span></div>
-        <div className="navsec">Work</div>
-        <button className={'navitem' + (view === 'board' ? ' on' : '')} onClick={() => setView('board')}>▦ Work board</button>
-        <button className={'navitem' + (view === 'orders' || view === 'order' ? ' on' : '')} onClick={() => setView('orders')}>☰ Orders</button>
-        <div className="navsec">Explain</div>
-        <button className={'navitem' + (view === 'rules' ? ' on' : '')} onClick={() => setView('rules')}>⚙ Rules & HubSpot map</button>
-        <div className="navsec">Persona</div>
-        {WORKING_PERSONAS.map((p) => (
-          <button key={p} className={'navitem' + (persona === p ? ' on' : '')} style={{ fontWeight: 500 }} onClick={() => { setPersona(p); if (view === 'rules') setView('board'); }}>
-            <span className="who" style={{ background: '#fff', opacity: persona === p ? 1 : 0.4 }} /> {PERSONAS[p].label}
-          </button>
-        ))}
-        <div className="navfoot"><b>{PERSONAS[persona].user}</b>{PERSONAS[persona].label} · VIC + NSW + QLD</div>
+        <div className="brand"><div className="blogo">⟳</div><div className="bname">Leadverse</div><span className="bgeo">AU</span></div>
+        <button className="railtog" aria-label={railOpen ? 'Collapse menu' : 'Expand menu'} onClick={() => setRailOpen(!railOpen)}>{railOpen ? '‹' : '›'}</button>
+        <div className="navgrp">
+          <button className={'navitem grp' + (view !== 'rules' ? ' on' : '')} onClick={() => nav('list')}><span className="ni">▦</span><span className="nl">Tasks</span><span className="nl chev">⌃</span></button>
+          <div className="subnav">
+            <button className={view === 'list' || view === 'order' ? 'on' : ''} onClick={() => nav('list')}>Order</button>
+            <button className={view === 'board' ? 'on' : ''} onClick={() => nav('board')}>Board</button>
+            <button disabled title="Not part of this prototype">Lead</button>
+            <button disabled title="Not part of this prototype">Contact</button>
+          </div>
+        </div>
+        <button className="navitem" disabled title="Not part of this prototype"><span className="ni">⌑</span><span className="nl">Leads</span></button>
+        <button className="navitem" disabled title="Not part of this prototype"><span className="ni">⇪</span><span className="nl">Bulk operations</span></button>
+        <button className={'navitem' + (view === 'rules' ? ' on' : '')} onClick={() => nav('rules')}><span className="ni">⚙</span><span className="nl">HubSpot rules map</span></button>
+        <button className="navitem" disabled title="Not part of this prototype"><span className="ni">☷</span><span className="nl">Schema admin</span></button>
+        <div className="navfoot"><button className="navitem" disabled><span className="ni">⚙</span><span className="nl">Settings</span></button></div>
       </aside>
 
       <div className="col">
         <header className="top">
           <div className="bc">
-            <span>Post-deposit</span><span>/</span>
-            {view === 'order' && order ? <><button onClick={() => setView('board')}>{PERSONAS[persona].short} board</button><span>/</span><span className="cur">{order.id}</span></> : <span className="cur">{title}</span>}
+            <span>Leadverse</span><span>/</span>
+            {view === 'order' && order ? (
+              <><button onClick={toList}>Tasks</button><span>/</span><span className="cur">{curTask ? stageDef(curTask).label : order.id}</span></>
+            ) : view === 'rules' ? <span className="cur">HubSpot rules map</span> : <span className="cur">Tasks{view === 'board' ? ' · Board' : ''}</span>}
           </div>
           <span className="sp" />
-          <div style={{ position: 'relative' }}>
-            <input className="search" placeholder="Search order, name, appointment ID…" value={q} onChange={(e) => setQ(e.target.value)} />
-            {hits.length > 0 && (
-              <div className="card" style={{ position: 'absolute', right: 0, top: 42, width: 320, zIndex: 40, padding: 8, boxShadow: '0 14px 35px #0F172B22' }}>
-                {hits.map((o) => <div key={o.id} className="fe" style={{ cursor: 'pointer', padding: 8 }} onClick={() => { open(o.id); setQ(''); }}><b>{o.id}</b>&nbsp;{o.customer.name} · {o.car.make} {o.car.model}</div>)}
+          <div className="seg top-search">
+            <select defaultValue="appt"><option value="appt">Appointment ID</option></select>
+            <div style={{ position: 'relative', flex: 1 }}>
+              <input placeholder="Search by Appointment ID" value={q} onChange={(e) => setQ(e.target.value)} />
+              {hits.length > 0 && (
+                <div className="menu" style={{ top: 40, bottom: 'auto', left: 0, right: 'auto', width: 320 }}>
+                  {hits.map((o) => <button key={o.id} onClick={() => { open(o.id); setQ(''); }}><b>{o.id}</b> {o.customer.name} · {o.car.make} {o.car.model}</button>)}
+                </div>
+              )}
+            </div>
+          </div>
+          <button className="bell" aria-label="Notifications">🔔</button>
+          <div className="me" onClick={(e) => { e.stopPropagation(); setPmenu(!pmenu); }}>
+            <span className="meav">{PERSONAS[persona].user.split(' ').map((x) => x[0]).join('')}</span>
+            <span className="mename"><b>{PERSONAS[persona].user}</b><small>Persona: {MENU.find((m) => m.id === persona)!.label} ▾</small></span>
+            {pmenu && (
+              <div className="pmenu" onClick={(e) => e.stopPropagation()}>
+                {MENU.map((m) => (
+                  <button key={m.id} className={persona === m.id ? 'on' : ''} onClick={() => { setPersona(m.id); setPmenu(false); if (view === 'rules') setView('list'); }}>
+                    <span className="tick">{persona === m.id ? '✓' : ''}</span>{m.label}
+                  </button>
+                ))}
               </div>
             )}
           </div>
-          <select className="persona" value={persona} onChange={(e) => setPersona(e.target.value as PersonaId)}>
-            {WORKING_PERSONAS.map((p) => <option key={p} value={p}>Persona: {PERSONAS[p].label}</option>)}
-          </select>
         </header>
 
         <main className={'main' + (view === 'order' ? ' full' : '')}>
+          {view === 'list' && (
+            <Tasks orders={orders} persona={persona} now={now} open={open} onMove={(oid, tid, to) => doMove(oid, tid, to, persona)} />
+          )}
           {view === 'board' && (
             <>
-              <div className="head"><div><h1>{title}</h1><div className="sub">{persona === 'rm' ? 'Every order you own, grouped by where it is. Stages are derived from the other teams’ tasks.' : 'Your tasks across all orders, grouped by stage. Update inline or open the order.'}</div></div></div>
-              <Board orders={orders} persona={persona} now={now} open={open} onField={setField} onMove={(oid, tid, to) => doMove(oid, tid, to, persona)} />
-            </>
-          )}
-          {view === 'orders' && (
-            <>
-              <div className="head"><div><h1>All orders</h1><div className="sub">{orders.length} post-deposit orders · invented data</div></div></div>
-              <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                <table className="t">
-                  <thead><tr><th>Order</th><th>Customer</th><th>Car</th><th>Payment</th><th>Order stage</th><th>Open tasks</th></tr></thead>
-                  <tbody>
-                    {orders.map((o) => (
-                      <tr key={o.id} className="click" onClick={() => open(o.id)}>
-                        <td className="mono"><b>{o.id}</b></td>
-                        <td>{o.customer.name}<div className="hs" style={{ fontSize: 11 }}>{o.customer.state}</div></td>
-                        <td>{o.car.year} {o.car.make} {o.car.model}</td>
-                        <td>{o.paymentMode}</td>
-                        <td><span className="chip c-lv">{rmStage(o)}</span></td>
-                        <td>{o.tasks.filter((t) => stageDef(t).kind !== 'done').map((t) => <span key={t.id} className="chip c-grey" style={{ margin: '0 4px 4px 0' }}>{PERSONAS[JOURNEYS[t.journey].persona].short}: {stageDef(t).label}</span>)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <div className="head"><div><h1>{PERSONAS[persona].label} board</h1><div className="sub">{persona === 'rm' ? 'Every order you own, grouped by where it is. Stages are derived from the other teams’ tasks.' : 'Your tasks across all orders, grouped by stage. Update inline or open the order.'}</div></div></div>
+              <Board orders={orders} persona={persona} now={now} open={(id) => open(id)} onField={setField} onMove={(oid, tid, to) => doMove(oid, tid, to, persona)} />
             </>
           )}
           {view === 'order' && order && (
             <OrderView
-              o={order} persona={persona} now={now} back={() => setView('board')}
+              o={order} persona={persona} now={now} focus={focus} onFocus={setFocus} back={toList}
               onField={(tid, k, v) => setField(order.id, tid, k, v)}
               onMove={(tid, to) => doMove(order.id, tid, to, persona)}
               onDemo={(tid) => demo(order.id, tid)}
