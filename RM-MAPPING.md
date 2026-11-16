@@ -119,3 +119,58 @@ No post-deposit pipeline has *pipeline rules*, so cards can be dragged freely; w
 | 01a → Finance GFD | Finance GFD Confirmation |
 
 TW01a (cash): when the ticket is at First Instalment Paid / Awaiting Additional Deposit and a deposit-type payment lands, it increments Split Payment Count and branches on >1 / =1.
+
+## 9. Full ticket-pipeline logic: create → move → complete (read 16 Nov 2026)
+
+Source: every enabled post-deposit workflow definition (67 of 952 enabled workflows, read through HubSpot's own workflow API in the signed-in browser) plus the ticket pipeline definitions from the HubSpot MCP. Supersedes §7 where they differ.
+
+### 9.1 How the machine works (one pattern, repeated)
+
+1. **A team fills a field or moves its ticket** (ticket property / ticket stage).
+2. A **deal workflow** listens for "associated ticket entered stage X" or "ticket field = Yes" and **stamps a date on the deal** (descriptions say "Timestamped by Ticket"), sets an **L0x label** and moves the **deal stage**.
+3. A second **deal workflow** listens for that deal date and **creates the next team's ticket** (owner chosen by `delivery_state`).
+4. A **"… to BE – HS BE Back Sync"** deal workflow (custom code) pushes the date to OMS.
+
+So completion is never a single field: it is *ticket stage reached* (CLOSED stage) → *deal date known* → *next ticket created*. A ticket pipeline is "complete" when it reaches a stage whose state is **CLOSED**.
+
+### 9.2 Per pipeline
+
+| Pipeline | Created by (workflow · condition) | Entry stage · owner | Moves automatically | Complete (CLOSED) → what it triggers |
+|---|---|---|---|---|
+| **01a Cash** | `01_START` · deal `status` = BOOKED/RESERVED while deal is in a pre-booking stage, `payment_mode` 100% Online / Bank Transfer, deposit > 0 | Full payment → **Finance GFD**; bank transfer / `proof_of_payment_link` → *Deposit remittance advice received*; split → **First Instalment Paid** (`split_payment_count`=1) | `TW01a` (ticket): each new deposit → outstanding = 0 ? **Finance GFD** : *Awaiting Additional Deposit* | **Finance GFD** (needs `finance_gfd`) → `DW01e` deal `finance_gfd_date`; `DW01b` deal `gfr_date` already at First Instalment |
+| **01b BYO** | `01_START` · `payment_mode` = BYO | *Awaiting Approval from 3P Lender* (or *Deposit remittance…* if bank transfer) | — | **Loan Settled**. GFR at *Approved from 3P Lender*; `finance_gfd_date` at *Remittance Advice Received (Finance GFD)* / Loan Settled |
+| **01c Consumer finance** | `01_START` · `payment_mode` = Consumer Finance | *Deposit Paid* | — | **Loan Settled** (or Declined / Withdrawn / Non-responsive). GFR from *Medium Confidence* onward; GFD date at *Finance GFD* |
+| **01d In-house finance** | `01_START` · `payment_mode` = GLOBAL CARS AUS CREDIT; separate flow for `user_cohort` = BAD | *Awaiting Documents/Information*, or *Application completed* if `document_upload_status` + `loan_application_status` = COMPLETED | `INHF – Full payment received`: at *Approved, Ready for Rego* / *Settled – outstanding deposit* and outstanding = 0 → **Loan Settled-GFD** | **Loan Settled-GFD** (or Application closed). GFR at *Approved, Ready for Rego*; also GFR straight away if `finance_score` Prime Elite/Stable **and** interstate. If already approved at booking, 01_START moves the deal to 4 (or 2 if interstate) itself |
+| **02 Sales contracts** | `01_START` · every booking ("Customer Documents") | **Vehicle Sold** · owner by `delivery_state` (`02_Sale Contracts Ticket Owner`) | Labels only: Vehicle Sold/For Review → deal `l11` "Contract not sent"; Contract Sent → "Contract not signed" | **Contract Signed** (6 required fields, §8) → `TW02a` deal `contract_signed_date`, `l11` = Contract Signed. Links copied to deal: contract of sale, tax invoice, transfer document |
+| **03 Pre-interstate inspection** | `DW02` · deal `gfr_date` known ∧ `interstate_transit_required` = true | **To Be Inspected** · owner by `car_location_at_time_of_sale` (origin state). Deal → 2, `l02` = Awaiting Refurb GFIT | — | **Refurb GFIT** (needs `passed_inspection`) → `TW03a` deal `refurb_gfit_date` |
+| **04 Interstate transit** | `DW03` · deal `finance_gfit` ∧ `refurb_gfit_date` known | **GFIT**. Deal `gfit_date`, `l02` = Refurb GFIT | Ticket `eta_date` → deal `eta_date` + `transit_booked_date`; *Cars in Transit* → deal `interstate_departure_date`, deal 3 | **Interstate Arrival** → `TW03d` deal `interstate_arrival_date`, deal 4, **creates the 05 refurb ticket** (if none) |
+| **05 Refurb pre-GFD** (RWC + detail + QC) | `DW02` (not interstate) or `TW03d` (after arrival) | **Awaiting Refurb** · owner by `delivery_state` (tint branch picks a different ticket template) | VIC only: when the finance ticket reaches First Instalment / Approved Ready for Rego / Approved from 3P lender → *Transported to delivery hub*. `pre_refurb_qc_date` stamped at Transported / QC FAIL | Mid-pipeline trigger: ticket `rwc_completed_confirmation` = Yes → `TW04` deal `rwc` (RWC Completed Date), `l03`, deal 5, **creates 06**; RWC issue date copied to the **Car** object. **Refurb GFD** (needs `refurb_gfd_confirmation` + RWC confirmation) → `TW06` deal `refurb_gfd_date`, `l05` → `DW06a` |
+| **05b VAS operations** | One deal workflow per product (tint, exterior, interior, dashcam, scratch & dent, servicing) · product `*_opted` ∧ deposit known ∧ `gfr_date` ∧ Booked/Reserved ∧ (IHF: nothing more; others: `finance_gfd_date`; **NSW** also needs the car local or `interstate_arrival_date`; NSW cash may use `final_remittance_received_date__cash_`) | **Selected Products**; scratch & dent and servicing at GFR only, straight to **Post delivery – Schmick** | Auto-cancel → *Deal cancelled* when product un-ticked or deal 15 Cancelled. `VAS Added Post BC`: product added after booking and finance GFD known → **deal back to 7 Awaiting on blockers** | **Partially installed** / **All completed** — moved by hand only; nothing downstream waits on it |
+| **06 Registration** | `TW04` · RWC confirmed | **To be Registered** · owner by `delivery_state` | — | **Registration Complete** or **Registration Submitted (QLD)** → `TW05` deal `registered_date`, `l04`, deal 6 if refurb not yet GFD. VIC complete also copies rego no., expiry, engine no., TAC, check digit, fees to the deal. **No Rego – EGC Sale** also closes |
+| **07 Active deliveries** | `DW06a` (5 min after `refurb_gfd_date`) or `DW06b` (re-check) · deal `finance_gfd_date` ∧ `registered_date` ∧ `refurb_gfd_date` ∧ `contract_signed_date` known ∧ no 07 ticket | **To be Delivered** · owner by `delivery_state`. Deal → 8. If a date is missing → deal 7 Awaiting on blockers | Ticket `delivery_mode` → deal 3PL / Carcierge / pick-up date | **Delivered** (needs `actual_delivery_date` + 3) → `TW08` deal `actual_delivery_date`, `l06`, deal 9, **creates 08**, sets day-3/7/14 dates; `DW07b` warranty |
+| **07b Warranty generation** | `DW07b` · deal enters 9 or 10, wait 5 min | **Default Warranty to be generated**; plus *Extended warranty to be generated* if `extended_warranty_opted`, `integrity_warranty` or `rsa_opted` | Docs/link copied to deal | **Warranty / Extended warranty / AWN warranty sent to customer** |
+| **08 Post-delivery check-ins** | `TW08` | **Delivered to Customer** | — (deal gets `day_7_date`, `day_14_date`) | **Day 7 Check Completed** — moved by hand |
+| **09 Transfers** | `DW10` · 6 days after `actual_delivery_date`, deal → 10 | **Awaiting Transfer** · owner by state ("FLAGGED WITH ISSUE" if the customer raised an issue / asked for a return) | — | **Transferred** or **No Transfer Required** (→ deal `no_transfer_flag`) |
+
+### 9.3 Which object holds what
+
+| Object | Properties used by the logic |
+|---|---|
+| **Deal** (= the order) | **Triggers:** `status` (BOOKED/RESERVED), `dealstage`, `payment_mode`, `payment_method`, `deposit_payment_type`, `deposit_amount`, `outstanding_amount_to_be_paid_by_customer`, `total_amount_to_be_paid_by_customer`, `trade_in`, `proof_of_payment_link`, `delivery_state`, `car_location_at_time_of_sale`, `interstate_transit_required` (calculated by DW14 from the two states), `finance_score`, `user_cohort`, `loan_application_status`, `document_upload_status`, VAS `*_opted` flags, `extended_warranty_opted`, `integrity_warranty`, `rsa_opted`, `by_pass_contract_gfd_for_delivery_slots`. **Milestone dates stamped by workflows:** `gfr_date`, `finance_gfit`, `finance_gfd_date`, `refurb_gfit_date`, `gfit_date`, `eta_date`, `interstate_departure_date`, `interstate_arrival_date`, `rwc`, `registered_date`, `refurb_gfd_date`, `contract_signed_date`, `actual_delivery_date`. **Status labels:** `finance_status` (L01), `l02_refurb_gfit`, `l03_rwc_status`, `l04_registration_status`, `l05_refurb_gfd_status`, `l06_delivery_status`, `l07_transfer_status`, `l09_gfr`, `l11_contract_status`, plus `sl0x` shadow labels and `awaiting` (a joined list of open blockers). Owner = RM (`hubspot_owner_id`, set by 01_a by payment mode + state) |
+| **Ticket** (= one team's task) | `hs_pipeline`, `hs_pipeline_stage`, and the confirmation/data fields each team fills: `finance_gfd`, `recall_check_status`, `contract_signed`, `contract_handling`, `contract_of_sales_link`, `tax_invoice_link`, `transfer_document_link`, `passed_inspection`, `failed_inspection_notes`, `eta_date`, `rwc_completed_confirmation`, `rwc_serial_number`, `rwc_issue_date`, RWC expiry, `panel_information`, `detailing_complete_confirmation`, `refurb_gfd_confirmation`, rego fields (`registration_number`, expiry, check digit, TAC, fees, engine no.), `actual_delivery_date`, `delivery_mode`, `warranty_and_rsa_docs`. Copies pushed down from the deal: `payment_mode__imported_from_deal_`, `finance_gfd_date`, `split_payment_count__do_not_edit_`, `deposit_amount__do_not_edit_`, `delivery_state` |
+| **Contact** | Not a gate. `lifecyclestage` → opportunity at booking; check-in / walk-in date synced deal ↔ contact |
+| **Car** (custom object `p20450426_Cars`) | Not a gate. Only `cars24_rwc_date`, copied from the ticket's `rwc_issue_date` when RWC is confirmed. (MCP can't read this object until the HubSpot connector is re-authorised) |
+
+### 9.4 Things that matter for LeadVerse
+
+- **Deal workflows trigger on the associated ticket's stage**, e.g. `DW01b`, `DW01e`, `TW02a`, `TW05`, `TW06`, `TW08`. In LeadVerse that is simply "task reached stage X on this order".
+- **Two delivery gates:**
+  - HubSpot's DW06a requires `registered_date`.
+  - OMS `isDeliveryBookingAllowed` does not check registration, but does check hub arrival.
+  - Pick one in LeadVerse.
+- **QLD:** *Registration Submitted* already counts as registered.
+- **VIC:** the refurb ticket auto-moves at a finance milestone.
+- **NSW VAS:** tickets wait for the car to be local.
+- **Moved by hand only, with no workflow:** VAS install progress, check-ins and warranty sent. These are the "nobody moves it" tickets.
+- **Back-sync to OMS:** dedicated custom-code deal workflows push finance GFD, refurb GFD, RWC status, contract signed (or bypass), interstate departure/arrival, delivered and transfer dates.
+- Unknown stage ids in some filters (22937968, 14894894, 19770448) point at stages that no longer exist.
