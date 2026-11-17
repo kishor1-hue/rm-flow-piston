@@ -43,7 +43,7 @@ export interface Order {
   paymentMethod: 'Bank transfer' | 'Card' | 'Stripe';
   proofUrl?: string; // deal proof_of_payment_link
   payments: { type: string; amount: number; at: number; ref: string; by: string; method?: string }[];
-  discount?: { type: 'Flat' | 'Percent'; value: number; amount: number; reason: string; status: 'Applied' | 'Awaiting approval' };
+  discount?: { type: 'Flat' | 'Percent'; value: number; amount: number; reason: string; status: 'Applied' | 'Awaiting approval'; till?: string };
   shipping: number; // deal shipping_charges (home delivery)
   rmDone: Partial<Record<'promise' | 'discount' | 'tradein', number>>;
   slot?: { date: string; time: string; by: string; override?: boolean };
@@ -264,10 +264,10 @@ export function recordPayment(o: Order, amount: number, ref: string, by: Persona
 }
 
 export const DISCOUNT_LIMIT = 500; // assumed approval threshold; the B2C tool shows an "Approval required" modal
-export function applyDiscount(o: Order, type: 'Flat' | 'Percent', value: number, reason: string, at: number) {
+export function applyDiscount(o: Order, type: 'Flat' | 'Percent', value: number, reason: string, at: number, till?: string) {
   const amount = type === 'Flat' ? value : Math.round((o.price * value) / 100);
   const status = amount > DISCOUNT_LIMIT ? 'Awaiting approval' : 'Applied';
-  o.discount = { type, value, amount, reason, status };
+  o.discount = { type, value, amount, reason, status, till };
   o.rmDone.discount = at;
   log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text: `Discount ${type === 'Flat' ? money(value) : value + '%'} (${money(amount)}) — ${reason}` });
   log(o, { at, who: 'Workflow', kind: 'rule', rule: 'R-13', text: status === 'Applied' ? `Discount applied — outstanding now ${money(outstanding(o))}, tax invoice regenerated` : `Above ${money(DISCOUNT_LIMIT)} — sent to sales manager for approval` });

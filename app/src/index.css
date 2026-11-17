@@ -473,3 +473,39 @@ td.empty { cursor: default; }
 .pb tr.pb-due td { font-weight: 800; font-size: 14px; background: var(--amber-bg); color: var(--amber-ink); }
 .pb tr.pb-due.paid td { background: var(--green-bg); color: var(--green-ink); }
 .pb tr.pb-due td small.pb-note { color: inherit; opacity: .8; }
+
+/* Discount: calculator → generate */
+.dsteps { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.dsteps button { display: flex; align-items: center; gap: 8px; border: 0; background: none; font: inherit; font-size: 13px; font-weight: 600; color: var(--mute); cursor: pointer; padding: 0; }
+.dsteps button i { font-style: normal; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; border: 1.5px solid var(--line-2); background: #fff; }
+.dsteps button.on { color: var(--ink); }
+.dsteps button.on i { background: var(--lv); border-color: var(--lv); color: #fff; }
+.dsteps button.done i { background: var(--green); border-color: var(--green); color: #fff; }
+.dsep { flex: 0 0 40px; height: 1.5px; background: var(--line-2); }
+.dcalc { border: 1px solid var(--line-2); border-radius: 14px; background: #fff; padding: 16px; margin-top: 12px; display: flex; flex-direction: column; gap: 14px; }
+.dc-h { font-weight: 600; font-size: 14px; }
+.dc-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 12px; }
+.dc-cols > ul + ul { border-left: 1px solid var(--line); }
+.dc-list { list-style: none; margin: 0; padding: 6px 0; }
+.dc-list li { display: flex; justify-content: space-between; gap: 10px; padding: 6px 14px; font-size: 13px; }
+.dc-list li span { color: var(--mute); }
+.dc-list li b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.dc-sub { list-style: none; margin: 0 0 0 14px; padding: 0; border-left: 2px solid var(--line); }
+.dc-sub li { font-size: 12.5px; padding: 4px 14px; }
+.dc-list li.dc-due { margin-top: 4px; border-top: 1px solid var(--line); padding-top: 9px; }
+.dc-list li.dc-due span, .dc-list li.dc-due b { color: var(--ink); font-weight: 700; }
+.dc-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.dc-row .tf { flex: 0 1 260px; }
+.dc-in { display: flex; align-items: center; border: 1px solid var(--line-2); border-radius: 8px; background: #fff; padding-left: 12px; }
+.dc-in:focus-within, .tf-in:focus { border-color: var(--lv); box-shadow: 0 0 0 3px var(--lv-soft); outline: none; }
+.dc-in em { font-style: normal; color: var(--mute); }
+.dc-in input { border: 0; outline: 0; padding: 10px 12px 10px 6px; font: inherit; font-size: 14px; width: 100%; background: transparent; }
+.dc-err { font-size: 12.5px; color: var(--red); margin-top: -6px; }
+.dc-msg { background: var(--lv-wash); border: 1px solid var(--lv-soft); border-radius: 10px; padding: 10px 12px; font-size: 13.5px; }
+.tf-in { width: 100%; border: 1px solid var(--line-2); border-radius: 8px; padding: 10px 12px; font: inherit; font-size: 14px; color: var(--ink); background: #fff; }
+.tf .req { color: var(--red); font-style: normal; }
+.tf .opt { color: var(--mute-2); font-weight: 400; }
+.tf-help { font-size: 12px; color: var(--mute); }
+.tf-help.warn { color: var(--amber-ink); }
+.dc-after .tf-ro { color: var(--ink-2); }
+@media (max-width: 860px) { .dc-cols { grid-template-columns: 1fr; } .dc-cols > ul + ul { border-left: 0; border-top: 1px solid var(--line); } }
