@@ -4,7 +4,7 @@ import { fmtAge, gateStatus, hasGfr, isDone, isRegistered, money, outstanding, r
 import { TaskCard } from './TaskCard';
 
 export const PERSONA_JOURNEYS: Record<PersonaId, JourneyId[]> = {
-  rm: ['onboard', 'contract'], refurb: ['refurb', 'vas'], rego: ['rwc', 'rego'], delivery: ['delivery', 'transit'], finops: ['payment'], cx: ['warranty', 'checkin'],
+  rm: ['payment', 'contract'], refurb: ['refurb', 'vas'], rego: ['rwc', 'rego'], delivery: ['delivery', 'transit'], finops: ['payment'], cx: ['warranty', 'checkin'],
 };
 
 export function GateDots({ o }: { o: Order }) {
@@ -23,8 +23,9 @@ export function GateDots({ o }: { o: Order }) {
 export function rmNext(o: Order, now: number): { text: string; tone: string } {
   const s = rmStage(o);
   if (s === 'new') {
-    const t = task(o, 'onboard')!;
-    return { text: t.stage === 'assigned' ? 'Intro call · first contact ' + (slaState(t, now) === 'breach' ? 'overdue' : 'due within 1h') : 'Send recap email', tone: slaState(t, now) === 'breach' ? 'c-red' : 'c-lv' };
+    const t = task(o, 'payment')!;
+    if (t.stage === 'cancelled') return { text: 'Sale cancelled', tone: 'c-grey' };
+    return { text: 'Verify deposit proof · confirm first instalment', tone: slaState(t, now) === 'breach' ? 'c-red' : 'c-lv' };
   }
   if (s === 'prep') {
     const rwc = task(o, 'rwc');

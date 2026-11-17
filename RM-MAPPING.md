@@ -174,3 +174,21 @@ So completion is never a single field: it is *ticket stage reached* (CLOSED stag
 - **Moved by hand only, with no workflow:** VAS install progress, check-ins and warranty sent. These are the "nobody moves it" tickets.
 - **Back-sync to OMS:** dedicated custom-code deal workflows push finance GFD, refurb GFD, RWC status, contract signed (or bypass), interstate departure/arrival, delivered and transfer dates.
 - Unknown stage ids in some filters (22937968, 14894894, 19770448) point at stages that no longer exist.
+
+## 10. RM cash action flow (from the RM shadow session, 17 Nov 2026)
+
+Source: the RM shadow recording (HubSpot screens for R5NSB7, 77KK4W, E1Z5HY), the example deal 9KRW1Y, and the B2C admin panel code (`b2c-admin-web-au`: Orders, DiscountCodes, DeliverySlotManagement).
+
+In HubSpot the RM works on the deal and moves tickets in the side panel; workflows then react. In LeadVerse each step is an **action** in the middle panel, and the backend does what the workflows did.
+
+| # | RM action (LeadVerse) | Where it happens today | What the backend does on the action |
+|---|---|---|---|
+| 1 | **Verify deposit**: open the payment proof, match it to the bank statement, set the Finance ticket status (same dropdown as HubSpot 01a) to *First Instalment Paid*. Or cancel the sale | HubSpot finance ticket (owner = RM, e.g. "9KRW1Y-Dani (Finance Ticket)" at *Deposit remittance advice received (Bank Transfer)*, `proof_of_payment_link` on deal + ticket) | Stamp GFR (DW01b) → create the Refurb/RWC task, or the interstate inspection (DW02) → order to Car prep (deal 4) → sync GFR to OMS. Seen live: R5NSB7 finance ticket → First Instalment Paid 11:29, deal 1 → 4 and refurb ticket at 11:30 |
+| 2 | **Customer documents**: status dropdown of HubSpot 02 (Vehicle Sold → recall check → contract sent → Form 4 → review → Contract Signed). Customer gives the documents on the portal (licence); RM checks DocuSign status | HubSpot "(Customer Documents)" ticket, `contract_handling` = Contract sent through Portal; B2C *Manage Document* (DocuSign) | Signed → contract signed date (TW02a), contract gate ✓, sync to OMS |
+| 3 | **Sales promise**: read what the ground team promised, then confirm and hand it to Refurb | Deal properties `sales_promise_`, `notes_to_add_sales_promise`, `formatted_sales_promise` (left panel) | Promises attached to the Refurb detail task; discount promises carry into step 4 |
+| 4 | **Discount**: flat or %, plus reason. Above the limit it needs approval | B2C admin *Discount Codes* (discount calculator `api/admin/getDiscount/{orderId}?finalDap`, "Approval Required" modal, credit note). HubSpot only receives `discount_value` | Recalculate outstanding, regenerate tax invoice, approval request when above the limit (the $500 limit is an assumption) |
+| 5 | **Trade-in**: set the final value after inspection | B2C admin *Add Trade-in*; HubSpot `trade_in_value`, 02c Trade-in ops | Outstanding recalculated; final valuation to the trade-in ops task; Form 4 added |
+| 6 | **Balance payment**: call the customer, record each payment; at full payment confirm *Finance GFD* | Finance ticket; TW01a counts split payments | Each payment → Final remittance received or Awaiting additional deposit (TW01a). Finance GFD → date stamped (DW01e), VAS tasks (cash), finance gate ✓, sync to OMS |
+| 7 | **Book delivery**: pick-up or home delivery (shipping charge), then a slot once the gates are clear | B2C admin *Book Delivery Slots*; `delivery_mode`, `shipping_charges` | Slot + handover task, email/SMS confirmation |
+
+Steps 1 and 2 run in parallel from the moment of booking. Refurb, registration and delivery tasks are other personas; the RM sees them read-only in the Teams tab.

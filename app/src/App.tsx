@@ -134,6 +134,7 @@ export default function App() {
               onDemo={(tid) => demo(order.id, tid)}
               onBook={(d, t, ov) => update(order.id, (o) => bookSlot(o, d, t, 'rm', Date.now(), ov || o.bypassContract))}
               onBypass={(on) => update(order.id, (o) => setBypass(o, on, Date.now()))}
+              onAct={(fn) => update(order.id, (o) => fn(o, Date.now()))}
               onComms={(text) => update(order.id, (o) => { o.activity.unshift({ at: Date.now(), who: PERSONAS[persona].user, kind: 'comms', text }); })}
             />
           )}

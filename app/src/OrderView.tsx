@@ -6,6 +6,7 @@ import {
 } from './engine';
 import { PERSONA_JOURNEYS } from './Board';
 import { Field } from './TaskCard';
+import { firstOpenStep, RmFlow, type RmStep } from './RmFlow';
 
 function aiSummary(o: Order, now: number) {
   const parts: string[] = [];
@@ -40,7 +41,7 @@ function LeftPanel({ o, now, persona, onDemo, onComms, collapsed, toggle }: {
   const [first, ...rest] = o.customer.name.split(' ');
   const groups: Record<string, KV[]> = {
     contact: [['First Name', first], ['Last Name', rest.join(' ')], ['Email', o.customer.email], ['Phone With Country Code', o.customer.phone], ['Suburb', o.customer.suburb], ['State', o.customer.state], ['Relationship Manager', 'Priyanka A.']],
-    order: [['Order ID', o.id], ['Appointment ID', o.apptId], ['Order stage', RM_STAGES.find((s) => s.key === rmStage(o))!.label], ['HubSpot deal stage', hsDealStage(o)], ['Payment mode', o.paymentMode + (o.lender ? ' · ' + o.lender : '')], ['Delivery mode', o.deliveryMode], ['Delivery slot', o.slot ? `${o.slot.date} · ${o.slot.time}` : 'Not booked'], ...o.promises.map((p): KV => ['Sales promise', p])],
+    order: [['Order ID', o.id], ['Appointment ID', o.apptId], ['Order stage', RM_STAGES.find((s) => s.key === rmStage(o))!.label], ['HubSpot deal stage', hsDealStage(o)], ['Payment mode', o.paymentMode + (o.lender ? ' · ' + o.lender : '')], ['Payment method', o.paymentMethod], ['Proof of payment', o.proofUrl || '—'], ['Sales promise?', o.promises.length ? 'Yes' : 'No'], ...o.promises.map((p): KV => ['Sales promise', p]), ['Discount', o.discount ? `${money(o.discount.amount)} · ${o.discount.status}` : 'None'], ['Trade-in', o.tradeIn ? `${o.tradeIn.car} · ${money(o.tradeIn.value)}` : 'No'], ['Shipping charges', o.shipping ? money(o.shipping) : '$0'], ['Delivery mode', o.deliveryMode], ['Delivery slot', o.slot ? `${o.slot.date} · ${o.slot.time}` : 'Not booked']],
     car: [['Car', `${o.car.year} ${o.car.make} ${o.car.model}`], ['Odometer', o.car.km.toLocaleString() + ' km'], ['Colour', o.car.colour], ['VIN', o.car.vin], ['Located at', o.car.hub], ...(o.interstate ? [['Interstate', `${o.car.hubState} → ${o.customer.state}`] as KV] : []), ['Rego', (rego?.fields.regoNumber as string) || 'Not yet']],
     pricing: [['Car price', money(o.price)], ...o.vas.map((v): KV => ['+ ' + v.name, money(v.price)]), ...(o.tradeIn ? [['− Trade-in', money(o.tradeIn.value)] as KV] : []), ['Outstanding', outstanding(o) > 0 ? money(outstanding(o)) : 'Paid']],
   };
@@ -177,13 +178,7 @@ function Tiles({ o }: { o: Order }) {
 // Payment ledger + price breakup, laid out like the Leadverse Final Payment screen.
 function Payments({ o, t }: { o: Order; t: Task }) {
   const s = stageDef(t);
-  const dep = Math.round(o.price * 0.05 / 100) * 100;
-  const paidAll = s.kind === 'done' || s.key === 'final' || s.key === 'short';
-  const rows: [string, string, number, string, string][] = [
-    ['DEPOSIT', 'stripe_' + o.id.slice(3).toLowerCase(), dep, 'SUCCESS', 'Stripe'],
-    ...(t.stage !== 'deposit' ? [[o.paymentMode === 'Cash' ? 'FIRST_INSTALMENT' : 'LENDER_APPROVAL', o.paymentMode === 'Cash' ? 'bank_' + o.apptId.slice(-6) : (o.lender || 'Lender'), o.paymentMode === 'Cash' ? Math.round(o.price * 0.3) : 0, 'SUCCESS', o.paymentMode === 'Cash' ? 'FinOps' : (o.lender || 'Lender')] as [string, string, number, string, string]] : []),
-    ...(paidAll ? [['FINAL_PAYMENT', 'bank_' + o.id.slice(-4).toLowerCase(), Math.max(0, outstanding(o)), s.key === 'short' ? 'SHORT' : 'SUCCESS', 'FinOps'] as [string, string, number, string, string]] : []),
-  ];
+  const rows: [string, string, number, string, string][] = o.payments.map((x) => [x.type, x.ref, x.amount, s.key === 'short' && x.type === 'BALANCE' ? 'SHORT' : 'SUCCESS', x.by]);
   return (
     <>
       <div className="lp-title" style={{ marginTop: 18 }}>Payments</div>
@@ -221,7 +216,7 @@ function CarGpt({ o, item, now, open, toggle }: { o: Order; item?: Item; now: nu
     const t = item.t;
     const s = stageDef(t);
     const j = t.journey;
-    if (j === 'onboard') say = `"Hi ${first}, it's Priyanka from CARS24, your relationship manager. Congratulations on the ${o.car.year} ${o.car.make} ${o.car.model}! I'll walk you through what happens next and the ${money(outstanding(o))} balance."`;
+    if (j === 'payment') say = s.key === 'deposit' ? `Match the ${money(o.depositPaid)} transfer in the proof against the bank statement before confirming.` : `"Hi ${first}, it's Priyanka from CARS24, your relationship manager. Congratulations on the ${o.car.year} ${o.car.make} ${o.car.model}! I'll walk you through what happens next and the ${money(outstanding(o))} balance."`;
     else if (j === 'contract') say = `"Hi ${first}, your contract of sale is in your inbox from DocuSign. It takes about two minutes to sign${o.tradeIn ? ', and there is a Form 4 for your trade-in' : ''}."`;
     else if (j === 'rwc') say = s.key === 'fail' ? `Tell the RM: "${o.id} failed roadworthy — ${t.fields.panelInfo || 'issue being logged'}. Rework ETA ${t.fields.reworkEta || 'to be set'}."` : `Book ${o.id} into the RWC bay at ${o.car.hub.split(' · ')[0]}.`;
     else if (j === 'rego') say = `${o.customer.state} rule: ${o.customer.state === 'VIC' ? 'generate the VIC certificate (check digit + TAC charge needed).' : o.customer.state === 'QLD' ? 'submit to TMR with the RWC number, issue date and link.' : 'NSW goes straight to Registration complete.'}`;
@@ -263,8 +258,9 @@ function CarGpt({ o, item, now, open, toggle }: { o: Order; item?: Item; now: nu
   );
 }
 
-export function OrderView({ o, persona, now, focus, onFocus, onField, onMove, onDemo, onBook, onBypass, onComms }: {
+export function OrderView({ o, persona, now, focus, onFocus, onField, onMove, onDemo, onBook, onBypass, onComms, onAct }: {
   o: Order; persona: PersonaId; now: number; back: () => void; focus?: string; onFocus: (tid?: string) => void;
+  onAct: (fn: (o: Order, at: number) => void) => void;
   onField: (tid: string, k: string, v: string | boolean) => void; onMove: (tid: string, to: string) => void; onDemo: (tid: string) => void;
   onBook: (d: string, t: string, ov: boolean) => void; onBypass: (on: boolean) => void; onComms: (text: string) => void;
 }) {
@@ -282,6 +278,9 @@ export function OrderView({ o, persona, now, focus, onFocus, onField, onMove, on
   const [leftShut, setLeftShut] = useState(false);
   const [gptOpen, setGptOpen] = useState(false);
   const [stepsOpen, setStepsOpen] = useState(true);
+  const [rmStep, setRmStep] = useState<RmStep>(() => firstOpenStep(o));
+  useEffect(() => { setRmStep(firstOpenStep(o)); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [o.id]);
+  const rmItem: Item | undefined = rmStep === 'delivery' ? { kind: 'slot' } : rmStep === 'deposit' || rmStep === 'balance' ? { kind: 'task', t: task(o, 'payment')! } : rmStep === 'docs' ? { kind: 'task', t: task(o, 'contract')! } : undefined;
   const [date, setDate] = useState('Tue 17 Nov');
   const [time, setTime] = useState('11:00 am');
   useEffect(() => { setSel(pick()); setMenu(false); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [o.id, persona]);
@@ -311,6 +310,16 @@ export function OrderView({ o, persona, now, focus, onFocus, onField, onMove, on
     <div className={'ws' + (leftShut ? ' lshut' : '') + (gptOpen ? '' : ' rshut')}>
       <LeftPanel o={o} now={now} persona={persona} onDemo={onDemo} onComms={onComms} collapsed={leftShut} toggle={() => setLeftShut(!leftShut)} />
 
+      {persona === 'rm' ? (
+        <div className="ws-mid">
+          <div className="ws-items">
+            <span className="ws-oid"><b>{o.id}</b> · {o.car.year} {o.car.make} {o.car.model} · {o.paymentMode} · {o.customer.state}</span>
+            <span className="chip c-grey" style={{ marginLeft: 'auto' }} title="What the HubSpot deal would show">HubSpot deal: {hsDealStage(o)}</span>
+          </div>
+          <RmFlow o={o} step={rmStep} setStep={setRmStep} stepsOpen={stepsOpen} toggleSteps={() => setStepsOpen(!stepsOpen)}
+            onField={onField} onMove={onMove} onBook={onBook} onBypass={onBypass} onComms={onComms} act={onAct} />
+        </div>
+      ) : (
       <div className="ws-mid">
         <div className="ws-items">
           <span className="ws-oid"><b>{o.id}</b> · {o.car.year} {o.car.make} {o.car.model}</span>
@@ -335,7 +344,6 @@ export function OrderView({ o, persona, now, focus, onFocus, onField, onMove, on
             <div className="ws-body">
               <div className="ws-h">{s.label}{slaState(t, now) === 'breach' && <span className="chip c-red">SLA breached</span>}{t.journey === 'vas' && <span className="chip c-grey">Doesn't block slot</span>}</div>
               <div className="ws-guide">{s.guide || JOURNEYS[t.journey].why}</div>
-              {persona === 'rm' && <Tiles o={o} />}
               {t.journey === 'payment' && <Payments o={o} t={t} />}
               {(s.fields || []).length > 0 && s.kind !== 'done' && (
                 <>
@@ -418,8 +426,9 @@ export function OrderView({ o, persona, now, focus, onFocus, onField, onMove, on
           </div>
         </div>
       </div>
+      )}
 
-      <CarGpt o={o} item={item} now={now} open={gptOpen} toggle={() => setGptOpen(!gptOpen)} />
+      <CarGpt o={o} item={persona === 'rm' ? rmItem : item} now={now} open={gptOpen} toggle={() => setGptOpen(!gptOpen)} />
     </div>
   );
 }

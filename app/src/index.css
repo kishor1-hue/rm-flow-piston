@@ -425,3 +425,29 @@ td.empty { cursor: default; }
 .witem { padding: 5px 9px; font-size: 12.5px; border-radius: 9px; }
 .witem .chip { font-size: 11px; padding: 2px 7px; }
 .fbtn { white-space: nowrap; }
+
+/* RM cash action flow */
+.sp-btn { border: 0; background: none; font: inherit; color: inherit; cursor: pointer; padding: 0; }
+.ticketbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; border: 1px solid var(--line-2); border-radius: 14px; padding: 12px 14px; margin-top: 14px; background: #fff; }
+.tb-k { font-weight: 700; font-size: 14px; }
+.tb-s { font-size: 12px; color: var(--mute); margin-top: 2px; }
+.tb-sel { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--mute); min-width: 0; }
+.tb-sel select { border: 1.5px solid var(--lv); border-radius: 10px; padding: 8px 10px; font-weight: 600; color: var(--ink); background: var(--lv-wash); max-width: 100%; }
+.proof { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 14px; margin-top: 14px; }
+.proof-img { border: 1px dashed var(--line-2); border-radius: 12px; background: repeating-linear-gradient(135deg, #F8FAFC 0 10px, #F1F4F9 10px 20px); padding: 16px; display: flex; flex-direction: column; justify-content: center; gap: 4px; min-height: 140px; }
+.pi-bank { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--mute); font-weight: 700; }
+.pi-amt { font-size: 26px; font-weight: 800; }
+.pi-ref { font-size: 12px; color: var(--ink-2); }
+.fx { border: 1px solid #C6C1FF; background: var(--lv-wash); border-radius: 12px; padding: 10px 14px; margin-top: 14px; font-size: 13px; }
+.fx-h { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; color: var(--lv-ink); margin-bottom: 4px; }
+.fx ul { margin: 0; padding-left: 18px; color: var(--ink-2); line-height: 1.6; }
+.promises { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.promise { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line-2); border-radius: 10px; padding: 9px 12px; background: #fff; font-weight: 500; }
+.calc { border: 1px solid var(--line-2); border-radius: 12px; background: #fff; margin-top: 14px; max-width: 420px; }
+.calc > div { display: flex; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.calc > div:last-child { border-bottom: 0; }
+.calc span { color: var(--mute); }
+.calc .tot { background: var(--lv-wash); }
+.calc .tot span, .calc .tot b { color: var(--ink); font-weight: 700; }
+.statusline.warn { background: var(--amber-bg); border-color: #F7D9AE; color: var(--amber-ink); }
+@media (max-width: 860px) { .proof { grid-template-columns: 1fr; } }

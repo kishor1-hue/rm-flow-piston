@@ -40,6 +40,12 @@ export interface Order {
   interstate: boolean;
   depositAt: number;
   gfrAt?: number; // HubSpot deal gfr_date
+  paymentMethod: 'Bank transfer' | 'Card';
+  proofUrl?: string; // deal proof_of_payment_link
+  payments: { type: string; amount: number; at: number; ref: string; by: string }[];
+  discount?: { type: 'Flat' | 'Percent'; value: number; amount: number; reason: string; status: 'Applied' | 'Awaiting approval' };
+  shipping: number; // deal shipping_charges (home delivery)
+  rmDone: Partial<Record<'promise' | 'discount' | 'tradein', number>>;
   slot?: { date: string; time: string; by: string; override?: boolean };
   bypassContract: boolean;
   tasks: Task[];
@@ -94,7 +100,7 @@ export const gatesClear = (o: Order) => gateStatus(o).every((g) => g.ok);
 export function rmStage(o: Order): RmStageKey {
   if (isDone(task(o, 'delivery'))) return 'delivered';
   if (o.slot) return 'booked';
-  if (!isDone(task(o, 'onboard'))) return 'new';
+  if (!hasGfr(o)) return 'new';
   const prepJourneys: JourneyId[] = o.interstate ? ['transit', 'rwc', 'refurb'] : ['rwc', 'refurb'];
   const prep = prepJourneys.some((j) => !isDone(task(o, j))) || !isRegistered(o);
   if (prep) return 'prep';
@@ -116,13 +122,13 @@ export function hsDealStage(o: Order) {
 }
 
 // ---------- events ----------
-export function createOrder(base: Omit<Order, 'tasks' | 'activity' | 'bypassContract'>): Order {
-  const o: Order = { ...base, tasks: [], activity: [], bypassContract: false };
+export function createOrder(base: Omit<Order, 'tasks' | 'activity' | 'bypassContract' | 'payments' | 'rmDone' | 'shipping'> & { shipping?: number }): Order {
+  const o: Order = { ...base, shipping: base.shipping || 0, tasks: [], activity: [], bypassContract: false, payments: [], rmDone: {} };
   const at = o.depositAt;
-  log(o, { at, who: 'Customer', kind: 'stage', text: `Deposit $${o.depositPaid.toLocaleString()} paid online · order ${o.id} created` });
-  createTask(o, 'onboard', at, 'R-01');
-  createTask(o, 'contract', at, 'R-01');
+  o.payments.push({ type: 'DEPOSIT', amount: o.depositPaid, at, ref: o.paymentMethod === 'Bank transfer' ? 'Bank transfer · proof uploaded' : 'Stripe card', by: 'Customer' });
+  log(o, { at, who: 'Customer', kind: 'stage', text: `Deposit $${o.depositPaid.toLocaleString()} paid (${o.paymentMethod}) · order ${o.id} created` });
   createTask(o, 'payment', at, 'R-01');
+  createTask(o, 'contract', at, 'R-01');
   log(o, { at, who: 'Workflow', kind: 'comms', text: 'Automated email: "Your car is reserved" sent to customer' });
   return o;
 }
@@ -175,9 +181,8 @@ export function move(o: Order, t: Task, to: string, by: PersonaId | 'system', at
   log(o, { at, who: who(by), kind: 'stage', persona: def.persona, text: `${def.name}${t.item ? ' · ' + t.item : ''}: ${from} → ${s.label}` });
 
   // trigger rules
-  if (t.journey === 'onboard' && to === 'done')
-    log(o, { at, who: 'Workflow', kind: 'comms', text: 'Recap email sent from template with deal fields merged' });
-  if (t.journey === 'payment' && to !== 'deposit') fireGfr(o, at);
+  if (t.journey === 'payment' && ['instalment', 'short', 'final', 'gfd'].includes(to)) fireGfr(o, at);
+  if (t.journey === 'payment' && to === 'cancelled') log(o, { at, who: 'Workflow', kind: 'rule', text: 'Sale cancelled — all open tickets on the order move to Cancelled sale; customer refund raised' });
   if (t.journey === 'transit' && to === 'arrived') createTask(o, 'rwc', at, 'R-11');
   if (t.journey === 'rwc' && to === 'complete') {
     createTask(o, 'rego', at, 'R-05');
@@ -233,11 +238,56 @@ export function fmtAge(ms: number) {
   return `${Math.round(h / 24)}d`;
 }
 export const money = (n: number) => '$' + Math.round(n).toLocaleString('en-AU');
+export function orderTotal(o: Order) {
+  return o.price + o.vas.reduce((a, v) => a + v.price, 0) + o.shipping - (o.discount?.status === 'Applied' ? o.discount.amount : 0) - (o.tradeIn?.value || 0);
+}
 export function outstanding(o: Order) {
-  const total = o.price + o.vas.reduce((a, v) => a + v.price, 0) - (o.tradeIn?.value || 0);
   const p = task(o, 'payment');
   if (isDone(p) || p?.stage === 'final') return 0;
-  return total - o.depositPaid;
+  return Math.max(0, orderTotal(o) - o.payments.reduce((a, x) => a + x.amount, 0));
+}
+
+// ---------- RM actions (B2C admin panel today) ----------
+// TW01a: a new payment on a cash ticket moves it to Final remittance or Awaiting additional deposit.
+export function recordPayment(o: Order, amount: number, ref: string, by: PersonaId, at: number) {
+  o.payments.push({ type: o.payments.length === 1 ? 'FIRST_INSTALMENT' : 'BALANCE', amount, at, ref, by: who(by) });
+  log(o, { at, who: who(by), kind: 'stage', persona: by, text: `Payment of ${money(amount)} recorded (${ref})` });
+  const p = task(o, 'payment');
+  if (!p || !['instalment', 'short'].includes(p.stage)) return;
+  const left = outstanding(o);
+  log(o, { at, who: 'Workflow', kind: 'rule', rule: 'R-12', text: left === 0 ? 'Fully paid — Finance ticket moved to Final remittance received' : `${money(left)} still outstanding — Finance ticket at Awaiting additional deposit` });
+  move(o, p, left === 0 ? 'final' : 'short', 'system', at);
+}
+
+export const DISCOUNT_LIMIT = 500; // assumed approval threshold; the B2C tool shows an "Approval required" modal
+export function applyDiscount(o: Order, type: 'Flat' | 'Percent', value: number, reason: string, at: number) {
+  const amount = type === 'Flat' ? value : Math.round((o.price * value) / 100);
+  const status = amount > DISCOUNT_LIMIT ? 'Awaiting approval' : 'Applied';
+  o.discount = { type, value, amount, reason, status };
+  o.rmDone.discount = at;
+  log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text: `Discount ${type === 'Flat' ? money(value) : value + '%'} (${money(amount)}) — ${reason}` });
+  log(o, { at, who: 'Workflow', kind: 'rule', rule: 'R-13', text: status === 'Applied' ? `Discount applied — outstanding now ${money(outstanding(o))}, tax invoice regenerated` : `Above ${money(DISCOUNT_LIMIT)} — sent to sales manager for approval` });
+}
+export function approveDiscount(o: Order, at: number) {
+  if (!o.discount) return;
+  o.discount.status = 'Applied';
+  log(o, { at, who: 'Sales manager', kind: 'rule', rule: 'R-13', text: `Discount approved — outstanding now ${money(outstanding(o))}, tax invoice regenerated` });
+}
+export function skipStep(o: Order, step: 'promise' | 'discount' | 'tradein', text: string, at: number) {
+  o.rmDone[step] = at;
+  log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text });
+}
+export function finaliseTradeIn(o: Order, value: number, at: number) {
+  if (!o.tradeIn) return;
+  o.tradeIn.value = value;
+  o.rmDone.tradein = at;
+  log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text: `Trade-in final value ${money(value)} (${o.tradeIn.car})` });
+  log(o, { at, who: 'Workflow', kind: 'rule', rule: 'R-13', text: `Outstanding recalculated to ${money(outstanding(o))}; Trade-in ops task (02c) gets the final valuation` });
+}
+export function setDeliveryMode(o: Order, mode: Order['deliveryMode'], at: number) {
+  o.deliveryMode = mode;
+  o.shipping = mode === 'Home delivery' ? 299 : 0;
+  log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text: `Delivery mode set to ${mode}${o.shipping ? ` · shipping ${money(o.shipping)} added` : ''}` });
 }
 
 // Next actions offered at this stage for this order (state- and trade-in-specific ones filtered).

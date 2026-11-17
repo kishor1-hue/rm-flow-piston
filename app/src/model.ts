@@ -48,7 +48,7 @@ export interface StageDef {
 }
 
 export type JourneyId =
-  | 'onboard' | 'contract' | 'payment' | 'rwc' | 'rego' | 'refurb' | 'vas' | 'transit' | 'delivery' | 'warranty' | 'checkin';
+  | 'contract' | 'payment' | 'rwc' | 'rego' | 'refurb' | 'vas' | 'transit' | 'delivery' | 'warranty' | 'checkin';
 
 export interface JourneyDef {
   id: JourneyId;
@@ -64,29 +64,6 @@ export interface JourneyDef {
 const f = (key: string, label: string, type: FieldType, extra: Partial<FieldDef> = {}): FieldDef => ({ key, label, type, ...extra });
 
 export const JOURNEYS: Record<JourneyId, JourneyDef> = {
-  onboard: {
-    id: 'onboard', name: 'Intro call & onboarding', persona: 'rm', hsObject: 'Deal', blocksSlot: false,
-    hsPipeline: 'Primary Deal Pipeline · 1: Deposit Paid',
-    why: 'RM congratulates the customer, confirms outstanding amount, paperwork and timeline. Today the recap email is typed from scratch.',
-    stages: [
-      {
-        key: 'assigned', label: 'Assigned · to call', hs: '1: Deposit Paid', slaHours: 1, slaText: 'First contact within 1 working hour',
-        fields: [
-          f('callOutcome', 'Call outcome', 'select', { options: ['Connected', 'No answer — SMS sent', 'Call back requested'] }),
-          f('prefDelivery', 'Preferred handover', 'select', { options: ['Pick up at hub', 'Home delivery'], hs: 'delivery_mode' }),
-          f('licenceOk', "Driver's licence verified on portal", 'check'),
-        ],
-        next: [{ label: 'Log intro call', to: 'recap', tone: 'primary', requires: ['callOutcome'] }],
-      },
-      {
-        key: 'recap', label: 'Recap email', hs: '1: Deposit Paid', slaHours: 4,
-        fields: [f('recapTemplate', 'Template', 'select', { options: ['Welcome + outstanding amount', 'Welcome + finance next steps', 'Welcome + trade-in paperwork'] })],
-        next: [{ label: 'Send recap & start car prep', to: 'done', tone: 'primary', requires: ['recapTemplate'] }],
-      },
-      { key: 'done', label: 'Onboarded', hs: 'Deal stays at 1 until GFR', kind: 'done' },
-    ],
-  },
-
   contract: {
     id: 'contract', name: 'Contract of sale', persona: 'rm', hsObject: 'Ticket', blocksSlot: true,
     hsPipeline: '02_Sales Contracts',
@@ -168,15 +145,38 @@ export const JOURNEYS: Record<JourneyId, JourneyDef> = {
   },
 
   payment: {
-    id: 'payment', name: 'Payment / finance', persona: 'finops', hsObject: 'Ticket', blocksSlot: true,
-    hsPipeline: '01a Cash · 01b BYO · 01d In-house finance',
-    why: 'Finance GFD is one of the slot gates. RMs today screenshot bank statements and ask FinOps to mark payments.',
+    id: 'payment', name: 'Finance ticket', persona: 'finops', hsObject: 'Ticket', blocksSlot: true,
+    hsPipeline: '01a_Cash Customer Finance',
+    why: 'First milestone of the payment. For cash the RM checks the deposit proof, then chases the balance until Finance GFD.',
     stages: [
-      { key: 'deposit', label: 'Deposit received', hs: 'Deposit remittance advice received', guide: 'Deposit in. Waiting for the first instalment or lender approval.', auto: 'Created by 01_START', next: [{ label: 'Instalment / lender approval received (GFR)', to: 'instalment', tone: 'primary' }] },
-      { key: 'instalment', label: 'GFR · balance in progress', hs: 'First Instalment Paid / Approved from 3P Lender / Approved, Ready for Rego', slaHours: 72, guide: 'Customer money is committed, so car prep starts (GFR).', auto: 'Cash: TW01a counts split payments and moves the ticket. DW01b stamps GFR', next: [{ label: 'Final remittance received', to: 'final', tone: 'primary' }, { label: 'Short payment', to: 'short', tone: 'danger' }] },
-      { key: 'short', label: 'Awaiting additional deposit', hs: 'Awaiting Additional Deposit', kind: 'fail', slaHours: 48, guide: 'Customer paid less than due. RM chases the balance.', auto: 'TW01a: split payment count > 1', next: [{ label: 'Balance received', to: 'final', tone: 'primary' }] },
-      { key: 'final', label: 'Final remittance', hs: 'Final remittance received / Loan settled', guide: 'FinOps confirms the money has cleared.', fields: [f('gfdConfirm', 'Finance GFD confirmation', 'check', { hs: 'Finance GFD Confirmation*' })], next: [{ label: 'Confirm Finance GFD', to: 'gfd', tone: 'primary', requires: ['gfdConfirm'] }] },
-      { key: 'gfd', label: 'Finance GFD', hs: 'Finance GFD / Loan Settled - GFD', kind: 'done', auto: 'DW01e stamps Finance GFD Date on the deal' },
+      {
+        key: 'deposit', label: 'Deposit remittance received', hs: 'Deposit remittance advice received (Bank Transfer)', slaHours: 48, slaText: 'Bank transfers take 24–48h to land',
+        guide: 'Open the payment proof the customer uploaded and match it against the bank statement. Only then confirm the first instalment.',
+        auto: 'Created by 01_START at booking (bank transfer / proof of payment link)',
+        fields: [f('proofChecked', 'Payment proof matches the bank statement', 'check', { hs: 'NEW' })],
+        next: [
+          { label: 'Confirm first instalment paid', to: 'instalment', tone: 'primary', requires: ['proofChecked'] },
+          { label: 'Payment not received — cancel sale', to: 'cancelled', tone: 'danger' },
+        ],
+      },
+      {
+        key: 'instalment', label: 'First instalment paid', hs: 'First Instalment Paid', slaHours: 72,
+        guide: 'GFR — car prep has started. Chase the balance; each payment recorded moves the ticket on its own.',
+        auto: 'TW01a: each new payment → outstanding 0 ? Finance GFD : Awaiting Additional Deposit',
+        next: [
+          { label: 'Final remittance received', to: 'final', tone: 'primary' },
+          { label: 'Part payment — awaiting additional deposit', to: 'short', tone: 'ghost' },
+          { label: 'Cancel sale', to: 'cancelled', tone: 'danger' },
+        ],
+      },
+      { key: 'short', label: 'Awaiting additional deposit', hs: 'Awaiting Additional Deposit', kind: 'fail', slaHours: 48, guide: 'Customer paid part of the balance. Chase the rest.', auto: 'TW01a: split payment count > 1', next: [{ label: 'Final remittance received', to: 'final', tone: 'primary' }, { label: 'Cancel sale', to: 'cancelled', tone: 'danger' }] },
+      {
+        key: 'final', label: 'Final remittance received', hs: 'Final remittance received', guide: 'Full amount is in. Confirm Finance GFD so delivery can open.',
+        fields: [f('gfdConfirm', 'Finance GFD confirmation', 'check', { hs: 'Finance GFD Confirmation*' })],
+        next: [{ label: 'Confirm Finance GFD', to: 'gfd', tone: 'primary', requires: ['gfdConfirm'] }],
+      },
+      { key: 'gfd', label: 'Finance GFD', hs: 'Finance GFD', kind: 'done', auto: 'DW01e stamps Finance GFD Date on the deal' },
+      { key: 'cancelled', label: 'Cancelled sale', hs: 'Cancelled Sale', kind: 'cancel' },
     ],
   },
 
@@ -351,7 +351,7 @@ export interface RuleDef {
 }
 
 export const RULES: RuleDef[] = [
-  { id: 'R-01', when: 'Order booked or reserved (deposit paid)', then: 'Assign RM by payment mode + delivery state; create RM onboarding task (1h SLA), Contract task and Payment task by payment mode', persona: ['rm', 'finops'], hsToday: '01_START: deal status BOOKED/RESERVED from a pre-booking stage → finance ticket (01a/b/c/d by payment_mode; entry stage by full vs split payment and bank transfer) + 02 "Customer Documents" ticket at Vehicle Sold. 01_a assigns the RM', evidence: '01_START enrolment + branches, read 16 Nov 2026' },
+  { id: 'R-01', when: 'Order booked or reserved (deposit paid)', then: 'Assign RM by payment mode + delivery state; create the Finance ticket (cash: at Deposit remittance received, with the payment proof) and the Customer documents ticket at Vehicle sold', persona: ['rm', 'finops'], hsToday: '01_START: deal status BOOKED/RESERVED from a pre-booking stage → finance ticket (01a/b/c/d by payment_mode; entry stage by full vs split payment and bank transfer) + 02 "Customer Documents" ticket at Vehicle Sold. 01_a assigns the RM', evidence: '01_START enrolment + branches, read 16 Nov 2026' },
   { id: 'R-02', when: 'GFR reached and the car is in another state', then: 'Create Interstate transit task for Delivery (pre-transit inspection first). No roadworthy task yet', persona: ['delivery'], hsToday: 'DW02: gfr_date known ∧ interstate_transit_required = true → deal 2, 03 ticket at To Be Inspected (owner by car state). Refurb GFIT → DW03 creates 04 transit ticket', evidence: 'DW02 / DW03 / TW03a definitions' },
   { id: 'R-03', when: 'GFR — Go For Refurb (customer money committed), car local', then: 'Create Roadworthy task for Registration & RWC; deal leaves 1: Deposit Paid', persona: ['rego'], hsToday: 'DW01b stamps gfr_date when the finance ticket reaches: Cash First Instalment Paid / Awaiting Additional Deposit / Finance GFD · BYO Approved from 3P Lender / Remittance / Loan Settled · Consumer Medium Confidence onward · IHF Approved, Ready for Rego / Settled (or prime/stable IHF + interstate). DW02 → deal 4 + 05 ticket at Awaiting Refurb (owner by delivery state)', evidence: 'DW01b + DW02 definitions' },
   { id: 'R-04', when: 'VAS product opted and money committed', then: 'One VAS install task per product for Refurb (non-blocking). In-house finance: at GFR (dashcam waits for Finance GFD). Cash/BYO: at Finance GFD. NSW: only once the car is local. Extended warranty → warranty task at delivery instead', persona: ['refurb'], hsToday: 'One "VAS ticket pipelines – <product>" deal workflow each; scratch & dent and servicing go straight to Post delivery – Schmick at GFR. Auto-cancelled when the product is un-ticked', evidence: 'VAS workflow enrolment criteria' },
@@ -361,6 +361,8 @@ export const RULES: RuleDef[] = [
   { id: 'R-08', when: 'RM or customer books a slot', then: 'Instant email + SMS confirmation (R4); Handover task can move to Deliver today', persona: ['delivery'], hsToday: 'Slot sits on booked_delivery_date / time slot; manual bookings in HubSpot or B2C send no confirmation', evidence: 'Reimagine doc R4 (P0)' },
   { id: 'R-09', when: 'Handover marked delivered', then: 'Create Warranty + Post-delivery check-in tasks for CX; close the RM order', persona: ['cx'], hsToday: 'TW08 → deal actual_delivery_date, L06, deal 9, 08 ticket at Delivered to Customer. DW07b (deal 9/10, +5 min) → 07b default warranty, plus extended if EW / Integrity / RSA opted. DW10: 09 transfer ticket 6 days later', evidence: 'TW08 / DW07b / DW10 definitions' },
   { id: 'R-10', when: 'RWC fails', then: 'ETA required to save; reminder to rework team at 48h; RM sees ETA on the order', persona: ['rego', 'rm'], hsToday: 'Requires Mechanical/Panel stage exists, no ETA property', evidence: 'Reimagine doc R1 (P0)' },
+  { id: 'R-12', when: 'A balance payment is recorded on a cash order', then: 'Outstanding recalculated; fully paid → Finance ticket to Final remittance received, otherwise Awaiting additional deposit', persona: ['finops', 'rm'], hsToday: 'TW01a – Split Payment updates: counts split payments on the cash ticket and branches on outstanding = 0', evidence: 'TW01a definition' },
+  { id: 'R-13', when: 'RM applies a discount or finalises the trade-in value', then: 'Outstanding and tax invoice recalculated; discounts above the limit wait for sales-manager approval', persona: ['rm'], hsToday: 'Not in HubSpot: done in the B2C admin panel (Discount codes · discount calculator / Add trade-in), HubSpot only receives discount_value and trade_in_value', evidence: 'b2c-admin-web-au: pages/DiscountCodes, pages/Orders/components/AddTradeIn' },
   { id: 'R-11', when: 'Interstate car arrives at the hub', then: 'Create the Roadworthy task (car prep starts at the destination)', persona: ['rego'], hsToday: 'TW03d: 04 ticket → Interstate Arrival → deal interstate_arrival_date, L02, deal 4, 05 ticket at Awaiting Refurb if none exists', evidence: 'TW03d definition' },
 ];
 
