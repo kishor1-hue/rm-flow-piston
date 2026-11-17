@@ -8,6 +8,28 @@ import {
 } from './engine';
 import { Field } from './TaskCard';
 import { proofPng } from './proof';
+import { payload, SchemaForm, validate, type FormValues, type SchemaPage } from './SchemaForm';
+import spForm from './forms/sales-promise-checklist.json';
+
+const SP_PAGE = spForm.pages[0] as unknown as SchemaPage;
+const SP_SUBMIT = spForm.apiSources.find((a) => a.key === SP_PAGE.navigation.next.apiSourceId)!;
+
+// Stand-in for GET_SALES_PROMISE_CHECKLIST (ON_PAGE_LOAD, dummy): map the deal's promises onto checklist options.
+function prefillChecklist(promises: string[]): FormValues {
+  if (!promises.length) return { refurb_select: 'No' };
+  const v: FormValues = { refurb_select: 'Yes' };
+  const add = (k: string, opt: string) => { v[k] = [...((v[k] as string[]) || []), opt]; };
+  const other: string[] = [];
+  for (const p of promises) {
+    if (/tyre/i.test(p)) add('tyres', 'Need new Tyres');
+    else if (/scratch|dent|paint|bumper|scuff/i.test(p)) add('exteriors', 'Paint Scratches / Dents to be repaired');
+    else if (/service/i.test(p)) add('servicing', 'Periodic service required');
+    else if (/brake/i.test(p)) add('brake_acceleration', 'Brakes are weak');
+    else if (!/\$\d+\s*off/i.test(p)) other.push(p);
+  }
+  if (other.length) v.other_refurbish_comments = other.join('; ');
+  return v;
+}
 
 export type RmStep = 'deposit' | 'discount' | 'docs' | 'promise' | 'tradein' | 'balance' | 'delivery';
 type Act = (fn: (o: Order, at: number) => void) => void;
@@ -142,6 +164,9 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   // Discount page has two sections, like the B2C admin: back-calculate from a target outstanding, then generate the discount.
   const [calc, setCalc] = useState<{ target: string; result: number | null }>({ target: '', result: null });
   useEffect(() => { setCalc({ target: '', result: null }); }, [o.id]);
+  const [sp, setSp] = useState<FormValues>(() => o.promiseChecklist || prefillChecklist(o.promises));
+  const [spTried, setSpTried] = useState(false);
+  useEffect(() => { setSp(o.promiseChecklist || prefillChecklist(o.promises)); setSpTried(false); }, [o.id]);
   const [tiv, setTiv] = useState(String(o.tradeIn?.value || ''));
   const [pay, setPay] = useState({ amount: '', ref: '' });
   useEffect(() => { setMenu(false); }, [step, o.id]);
@@ -254,21 +279,41 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   }
 
   if (step === 'promise') {
-    primary = o.rmDone.promise ? undefined : { label: o.promises.length ? 'Confirm promises & hand to Refurb' : 'No sales promise — continue', run: () => act((x, at) => skipStep(x, 'promise', o.promises.length ? `Sales promises confirmed with ${first} and attached to the Refurb task` : 'No sales promise on this order', at)) };
-    fx = o.promises.length ? ['Attach the promises to the Refurb detail task', 'Refurb must tick each promise before QC', 'Discount promises carry into the Discount step'] : [];
+    const errs = validate(SP_PAGE, sp);
+    const nErr = Object.keys(errs).length;
+    if (!o.rmDone.promise) {
+      primary = {
+        label: SP_PAGE.navigation.next.text + ' checklist',
+        run: () => { setSpTried(true); if (!nErr) act((x, at) => { x.promiseChecklist = payload(SP_PAGE, sp); skipStep(x, 'promise', `Sales Promise checklist submitted (${SP_SUBMIT.key}) · refurbishment: ${sp.refurb_select}`, at); }); },
+        block: spTried && nErr ? `${nErr} field${nErr > 1 ? 's' : ''} need attention` : '',
+      };
+    }
+    fx = !o.rmDone.promise ? [`${SP_SUBMIT.method} ${SP_SUBMIT.url.replace('{{PLATFORM_BFF_BASE_URL}}', '')} (${SP_SUBMIT.key})`, 'Attach the selected items to the Refurb detail task; Refurb ticks each before QC', 'Uploaded photos go through GENERATE_REFURB_DOC_UPLOAD_URL (presigned PUT)', 'Discount promises carry into the Discount step'] : [];
+    const done = o.promiseChecklist;
     body = (
       <>
         <div className="kvbox" style={{ marginTop: 14 }}>
           <div><span>Sales promise?</span><b>{o.promises.length ? 'Yes' : 'No'}</b></div>
-          <div><span>Sales associate</span><b>Ground team · {o.car.hub.split(' · ')[0]}</b></div>
+          <div><span>Promised by the ground team</span><b>{o.promises.length ? o.promises.join(' · ') : '—'}</b></div>
         </div>
-        {o.promises.length > 0 && (
-          <div className="promises">
-            {o.promises.map((x) => <div key={x} className="promise"><span className={/\$\d+\s*off/i.test(x) ? 'chip c-amber' : 'chip c-lv'}>{/\$\d+\s*off/i.test(x) ? 'Discount' : 'Refurb'}</span>{x}</div>)}
-          </div>
-        )}
         <div className="hs" style={{ marginTop: 6 }}>sales_promise_ · notes_to_add_sales_promise · formatted_sales_promise</div>
-        {o.rmDone.promise && <div className="statusline">Confirmed {fmtAge(Date.now() - o.rmDone.promise)} ago.</div>}
+        <div className="sec-h">{SP_PAGE.title}</div>
+        {!done ? (
+          <>
+            <div className="sf-api">Prefilled from the deal's sales promise · {spForm.apiSources[0].key} (dummy)</div>
+            <SchemaForm page={SP_PAGE} values={sp} showErrors={spTried} onChange={(id, v) => setSp((cur) => ({ ...cur, [id]: v }))} />
+          </>
+        ) : (
+          <>
+            <div className="tbox">
+              <table className="tl-t">
+                <thead><tr><th>Field</th><th>Answer</th></tr></thead>
+                <tbody>{Object.entries(done).map(([k, v]) => <tr key={k}><td>{SP_PAGE.fields.find((f) => f.field_key === k)?.label || k}</td><td>{Array.isArray(v) ? v.join(', ') : v}</td></tr>)}</tbody>
+              </table>
+            </div>
+            <div className="statusline">Checklist submitted {fmtAge(Date.now() - o.rmDone.promise!)} ago and handed to Refurb.</div>
+          </>
+        )}
       </>
     );
   }

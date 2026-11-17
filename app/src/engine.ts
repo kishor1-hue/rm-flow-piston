@@ -46,6 +46,7 @@ export interface Order {
   discount?: { type: 'Flat' | 'Percent'; value: number; amount: number; reason: string; status: 'Applied' | 'Awaiting approval'; till?: string };
   shipping: number; // deal shipping_charges (home delivery)
   rmDone: Partial<Record<'promise' | 'discount' | 'tradein', number>>;
+  promiseChecklist?: Record<string, string | string[]>; // submitted Sales Promise Refurbishment Checklist
   slot?: { date: string; time: string; by: string; override?: boolean };
   bypassContract: boolean;
   tasks: Task[];

@@ -1,0 +1,1896 @@
+{
+  "apiSources": [
+    {
+      "allowedDomains": [
+        "gcp-bff-stage.qac24svc.dev",
+        "api.cars24.com"
+      ],
+      "auth": {
+        "type": "NONE"
+      },
+      "clearOnDependencyChange": true,
+      "key": "GET_SALES_PROMISE_CHECKLIST",
+      "method": "GET",
+      "name": "Prefill Sales Promise checklist - DUMMY",
+      "queryParams": {
+        "orderId": "{{context_orderId}}"
+      },
+      "responseMapping": {
+        "itemsPath": "$.data",
+        "labelPath": "label",
+        "valuePath": "value"
+      },
+      "skipIfDependenciesMissing": true,
+      "timeoutMs": 8000,
+      "trigger": "ON_PAGE_LOAD",
+      "url": "{{PLATFORM_BFF_BASE_URL}}/api/v1/lead-verse/sales-promise-checklist"
+    },
+    {
+      "allowedDomains": [
+        "gcp-bff-stage.qac24svc.dev",
+        "api.cars24.com"
+      ],
+      "auth": {
+        "type": "CONSUMER_TOKEN"
+      },
+      "body": {
+        "consumerId": "{{context_orderId}}",
+        "documentTemplateCode": "REFURB_CHECKLIST_ITEM",
+        "fileSizeBytes": "{{file_size}}",
+        "meta": {
+          "subType": "REFURB_CHECKLIST_ITEM",
+          "type": "REFURB_CHECKLIST_ITEM"
+        },
+        "mimeType": "{{content_type}}",
+        "originalFilename": "{{file_name}}",
+        "pageNumber": "1",
+        "uploadedBy": "{{context_userEmail}}"
+      },
+      "clearOnDependencyChange": true,
+      "headers": {
+        "Content-Type": "application/json",
+        "accept": "application/json",
+        "idempotencykey": "REFURB_CHECKLIST_ITEM_{{context_epoch}}",
+        "x_tenant_id": "uae-glovebox"
+      },
+      "key": "GENERATE_REFURB_DOC_UPLOAD_URL",
+      "method": "POST",
+      "name": "Generate Refurb doc upload URL",
+      "responseMapping": {
+        "itemsPath": "$",
+        "labelPath": "data.pageInfoId",
+        "valuePath": "data.attachmentUri"
+      },
+      "skipIfDependenciesMissing": true,
+      "timeoutMs": 15000,
+      "trigger": "ON_BUTTON_CLICK",
+      "url": "{{PLATFORM_BFF_BASE_URL}}/api/v1/generate-presigned-url"
+    },
+    {
+      "allowedDomains": [
+        "gcp-bff-stage.qac24svc.dev",
+        "api.cars24.com"
+      ],
+      "auth": {
+        "type": "NONE"
+      },
+      "body": {
+        "ac": "{{ac}}",
+        "ac_remark": "{{ac_remark}}",
+        "brake_acceleration": "{{brake_acceleration}}",
+        "brake_acceleration_remark": "{{brake_acceleration_remark}}",
+        "electrical": "{{electrical}}",
+        "electrical_remark": "{{electrical_remark}}",
+        "engine": "{{engine}}",
+        "engine_remark": "{{engine_remark}}",
+        "exteriors": "{{exteriors}}",
+        "exteriors_remark": "{{exteriors_remark}}",
+        "interiors": "{{interiors}}",
+        "interiors_remark": "{{interiors_remark}}",
+        "lights": "{{lights}}",
+        "lights_remark": "{{lights_remark}}",
+        "orderId": "{{context_orderId}}",
+        "other_refurbish_comments": "{{other_refurbish_comments}}",
+        "servicing": "{{servicing}}",
+        "servicing_remark": "{{servicing_remark}}",
+        "steering_wheel": "{{steering_wheel}}",
+        "steering_wheel_remark": "{{steering_wheel_remark}}",
+        "suspension": "{{suspension}}",
+        "suspension_remark": "{{suspension_remark}}",
+        "taskEventCallPayload": "{{context_eventPayload}}",
+        "transmission": "{{transmission}}",
+        "transmission_remark": "{{transmission_remark}}",
+        "tyres": "{{tyres}}",
+        "tyres_remark": "{{tyres_remark}}"
+      },
+      "clearOnDependencyChange": true,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "key": "SUBMIT_SALES_PROMISE_CHECKLIST",
+      "method": "POST",
+      "name": "Submit Sales Promise checklist",
+      "responseMapping": {
+        "itemsPath": "$",
+        "labelPath": "statusCode",
+        "valuePath": "statusCode"
+      },
+      "skipIfDependenciesMissing": true,
+      "timeoutMs": 8000,
+      "trigger": "ON_BUTTON_CLICK",
+      "url": "{{PLATFORM_BFF_BASE_URL}}/api/v1/lead-verse/sales-promise-checklist-submit"
+    }
+  ],
+  "meta": {
+    "fieldConditionLogicOperator": "AND",
+    "formVersion": 1,
+    "generatedAt": "2026-07-31T18:31:40.499Z",
+    "startPageId": "sales-promise-checklist-page"
+  },
+  "pages": [
+    {
+      "blocks": [
+        {
+          "fieldId": "refurb_select",
+          "id": "block-refurb-select",
+          "kind": "field"
+        },
+        {
+          "fieldId": "ac",
+          "id": "block-ac",
+          "kind": "field"
+        },
+        {
+          "fieldId": "ac_remark",
+          "id": "block-ac-remark",
+          "kind": "field"
+        },
+        {
+          "fieldId": "ac_doc",
+          "id": "block-ac-doc",
+          "kind": "field"
+        },
+        {
+          "fieldId": "brake_acceleration",
+          "id": "block-brake-acceleration",
+          "kind": "field"
+        },
+        {
+          "fieldId": "brake_acceleration_remark",
+          "id": "block-brake-acceleration-remark",
+          "kind": "field"
+        },
+        {
+          "fieldId": "brake_acceleration_doc",
+          "id": "block-brake-acceleration-doc",
+          "kind": "field"
+        },
+        {
+          "fieldId": "electrical",
+          "id": "block-electrical",
+          "kind": "field"
+        },
+        {
+          "fieldId": "electrical_remark",
+          "id": "block-electrical-remark",
+          "kind": "field"
+        },
+        {
+          "fieldId": "electrical_doc",
+          "id": "block-electrical-doc",
+          "kind": "field"
+        },
+        {
+          "fieldId": "engine",
+          "id": "block-engine",
+          "kind": "field"
+        },
+        {
+          "fieldId": "engine_remark",
+          "id": "block-engine-remark",
+          "kind": "field"
+        },
+        {
+          "fieldId": "engine_doc",
+          "id": "block-engine-doc",
+          "kind": "field"
+        },
+        {
+          "fieldId": "exteriors",
+          "id": "block-exteriors",
+          "kind": "field"
+        },
+        {
+          "fieldId": "exteriors_remark",
+          "id": "block-exteriors-remark",
+          "kind": "field"
+        },
+        {
+          "fieldId": "exteriors_doc",
+          "id": "block-exteriors-doc",
+          "kind": "field"
+        },
+        {
+          "fieldId": "interiors",
+          "id": "block-interiors",
+          "kind": "field"
+        },
+        {
+          "fieldId": "interiors_remark",
+          "id": "block-interiors-remark",
+          "kind": "field"
+        },
+        {
+          "fieldId": "interiors_doc",
+          "id": "block-interiors-doc",
+          "kind": "field"
+        },
+        {
+          "fieldId": "lights",
+          "id": "block-lights",
+          "kind": "field"
+        },
+        {
+          "fieldId": "lights_remark",
+          "id": "block-lights-remark",
+          "kind": "field"
+        },
+        {
+          "fieldId": "lights_doc",
+          "id": "block-lights-doc",
+          "kind": "field"
+        },
+        {
+          "fieldId": "servicing",
+          "id": "block-servicing",
+          "kind": "field"
+        },
+        {
+          "fieldId": "servicing_remark",
+          "id": "block-servicing-remark",
+          "kind": "field"
+        },
+        {
+          "fieldId": "servicing_doc",
+          "id": "block-servicing-doc",
+          "kind": "field"
+        },
+        {
+          "fieldId": "steering_wheel",
+          "id": "block-steering-wheel",
+          "kind": "field"
+        },
+        {
+          "fieldId": "steering_wheel_remark",
+          "id": "block-steering-wheel-remark",
+          "kind": "field"
+        },
+        {
+          "fieldId": "steering_wheel_doc",
+          "id": "block-steering-wheel-doc",
+          "kind": "field"
+        },
+        {
+          "fieldId": "suspension",
+          "id": "block-suspension",
+          "kind": "field"
+        },
+        {
+          "fieldId": "suspension_remark",
+          "id": "block-suspension-remark",
+          "kind": "field"
+        },
+        {
+          "fieldId": "suspension_doc",
+          "id": "block-suspension-doc",
+          "kind": "field"
+        },
+        {
+          "fieldId": "transmission",
+          "id": "block-transmission",
+          "kind": "field"
+        },
+        {
+          "fieldId": "transmission_remark",
+          "id": "block-transmission-remark",
+          "kind": "field"
+        },
+        {
+          "fieldId": "transmission_doc",
+          "id": "block-transmission-doc",
+          "kind": "field"
+        },
+        {
+          "fieldId": "tyres",
+          "id": "block-tyres",
+          "kind": "field"
+        },
+        {
+          "fieldId": "tyres_remark",
+          "id": "block-tyres-remark",
+          "kind": "field"
+        },
+        {
+          "fieldId": "tyres_doc",
+          "id": "block-tyres-doc",
+          "kind": "field"
+        },
+        {
+          "fieldId": "other_refurbish_comments",
+          "id": "block-other-refurbish-comments",
+          "kind": "field"
+        }
+      ],
+      "conditionalBranches": [],
+      "defaultNextPageId": null,
+      "fields": [
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": []
+          },
+          "dataSource": "static",
+          "errorMessages": {
+            "required": "Please select an option"
+          },
+          "field_key": "refurb_select",
+          "id": "refurb_select",
+          "label": "Does this category need refurbishment?",
+          "options": [
+            {
+              "label": "Yes",
+              "value": "Yes"
+            },
+            {
+              "label": "No",
+              "value": "No"
+            },
+            {
+              "label": "NA",
+              "value": "NA"
+            }
+          ],
+          "placeholder": "Select",
+          "required": true,
+          "type": "select",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_ac_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "ac",
+          "id": "ac",
+          "label": "AC",
+          "options": [
+            {
+              "label": "AC not working - no cooling",
+              "value": "AC not working - no cooling"
+            },
+            {
+              "label": "AC blower noisy",
+              "value": "AC blower noisy"
+            },
+            {
+              "label": "AC noisy while functioning",
+              "value": "AC noisy while functioning"
+            },
+            {
+              "label": "AC poor cooling",
+              "value": "AC poor cooling"
+            },
+            {
+              "label": "Others",
+              "value": "Others"
+            }
+          ],
+          "placeholder": "Select all that apply",
+          "required": false,
+          "type": "checkbox",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [
+              {
+                "fieldId": "ac",
+                "id": "cond_ac_remark_others_required",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_ac_remark_yes",
+                "operator": "equals",
+                "value": "Yes"
+              },
+              {
+                "fieldId": "ac",
+                "id": "cond_ac_remark_others_visible",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {
+            "required": "Please add remarks for Others"
+          },
+          "field_key": "ac_remark",
+          "id": "ac_remark",
+          "label": "AC - Other Remarks",
+          "options": [],
+          "placeholder": "Please specify",
+          "required": false,
+          "type": "textarea",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_ac_doc_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "ac_doc",
+          "helperText": "Optional - photos / documents (PDF, images)",
+          "id": "ac_doc",
+          "label": "AC - Upload Docs",
+          "options": [],
+          "placeholder": "Upload file",
+          "required": false,
+          "type": "file_upload",
+          "uiType": "default",
+          "upload": {
+            "mode": "ON_SELECT",
+            "prepareApiSourceId": "GENERATE_REFURB_DOC_UPLOAD_URL",
+            "responseMapping": {
+              "documentIdPath": "$.data.pageInfoId",
+              "filePathPath": "$.data.attachmentUri",
+              "fileUrlPath": "$.data.attachmentUri",
+              "headersPath": "$.data.uploadHeaders",
+              "uploadUrlPath": "$.data.uploadUrl"
+            },
+            "strategy": "PRESIGNED_PUT"
+          }
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_brake_acceleration_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "brake_acceleration",
+          "id": "brake_acceleration",
+          "label": "Brake / Acceleration",
+          "options": [
+            {
+              "label": "Brakes are weak",
+              "value": "Brakes are weak"
+            },
+            {
+              "label": "Steering shaky while applying brakes",
+              "value": "Steering shaky while applying brakes"
+            },
+            {
+              "label": "Brakes noisy",
+              "value": "Brakes noisy"
+            },
+            {
+              "label": "Brakes are tight/hard",
+              "value": "Brakes are tight/hard"
+            },
+            {
+              "label": "Others",
+              "value": "Others"
+            }
+          ],
+          "placeholder": "Select all that apply",
+          "required": false,
+          "type": "checkbox",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [
+              {
+                "fieldId": "brake_acceleration",
+                "id": "cond_brake_acceleration_remark_others_required",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_brake_acceleration_remark_yes",
+                "operator": "equals",
+                "value": "Yes"
+              },
+              {
+                "fieldId": "brake_acceleration",
+                "id": "cond_brake_acceleration_remark_others_visible",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {
+            "required": "Please add remarks for Others"
+          },
+          "field_key": "brake_acceleration_remark",
+          "id": "brake_acceleration_remark",
+          "label": "Brake / Acceleration - Other Remarks",
+          "options": [],
+          "placeholder": "Please specify",
+          "required": false,
+          "type": "textarea",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_brake_acceleration_doc_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "brake_acceleration_doc",
+          "helperText": "Optional - photos / documents (PDF, images)",
+          "id": "brake_acceleration_doc",
+          "label": "Brake / Acceleration - Upload Docs",
+          "options": [],
+          "placeholder": "Upload file",
+          "required": false,
+          "type": "file_upload",
+          "uiType": "default",
+          "upload": {
+            "mode": "ON_SELECT",
+            "prepareApiSourceId": "GENERATE_REFURB_DOC_UPLOAD_URL",
+            "responseMapping": {
+              "documentIdPath": "$.data.pageInfoId",
+              "filePathPath": "$.data.attachmentUri",
+              "fileUrlPath": "$.data.attachmentUri",
+              "headersPath": "$.data.uploadHeaders",
+              "uploadUrlPath": "$.data.uploadUrl"
+            },
+            "strategy": "PRESIGNED_PUT"
+          }
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_electrical_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "electrical",
+          "id": "electrical",
+          "label": "Electrical",
+          "options": [
+            {
+              "label": "Malfunction light ON at instrument cluster",
+              "value": "Malfunction light ON at instrument cluster"
+            },
+            {
+              "label": "Power Window not working",
+              "value": "Power Window not working"
+            },
+            {
+              "label": "Seat motors / adjustment not working",
+              "value": "Seat motors / adjustment not working"
+            },
+            {
+              "label": "Sun roof / door curtains not working",
+              "value": "Sun roof / door curtains not working"
+            },
+            {
+              "label": "Door mirrors not working",
+              "value": "Door mirrors not working"
+            },
+            {
+              "label": "Navigation not working",
+              "value": "Navigation not working"
+            },
+            {
+              "label": "Others",
+              "value": "Others"
+            }
+          ],
+          "placeholder": "Select all that apply",
+          "required": false,
+          "type": "checkbox",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [
+              {
+                "fieldId": "electrical",
+                "id": "cond_electrical_remark_others_required",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_electrical_remark_yes",
+                "operator": "equals",
+                "value": "Yes"
+              },
+              {
+                "fieldId": "electrical",
+                "id": "cond_electrical_remark_others_visible",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {
+            "required": "Please add remarks for Others"
+          },
+          "field_key": "electrical_remark",
+          "id": "electrical_remark",
+          "label": "Electrical - Other Remarks",
+          "options": [],
+          "placeholder": "Please specify",
+          "required": false,
+          "type": "textarea",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_electrical_doc_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "electrical_doc",
+          "helperText": "Optional - photos / documents (PDF, images)",
+          "id": "electrical_doc",
+          "label": "Electrical - Upload Docs",
+          "options": [],
+          "placeholder": "Upload file",
+          "required": false,
+          "type": "file_upload",
+          "uiType": "default",
+          "upload": {
+            "mode": "ON_SELECT",
+            "prepareApiSourceId": "GENERATE_REFURB_DOC_UPLOAD_URL",
+            "responseMapping": {
+              "documentIdPath": "$.data.pageInfoId",
+              "filePathPath": "$.data.attachmentUri",
+              "fileUrlPath": "$.data.attachmentUri",
+              "headersPath": "$.data.uploadHeaders",
+              "uploadUrlPath": "$.data.uploadUrl"
+            },
+            "strategy": "PRESIGNED_PUT"
+          }
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_engine_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "engine",
+          "id": "engine",
+          "label": "Engine",
+          "options": [
+            {
+              "label": "Engine Noisy on drive",
+              "value": "Engine Noisy on drive"
+            },
+            {
+              "label": "Engine RPM fluctuating",
+              "value": "Engine RPM fluctuating"
+            },
+            {
+              "label": "Engine vibration on idle / D or R mode",
+              "value": "Engine vibration on idle / D or R mode"
+            },
+            {
+              "label": "Others",
+              "value": "Others"
+            }
+          ],
+          "placeholder": "Select all that apply",
+          "required": false,
+          "type": "checkbox",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [
+              {
+                "fieldId": "engine",
+                "id": "cond_engine_remark_others_required",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_engine_remark_yes",
+                "operator": "equals",
+                "value": "Yes"
+              },
+              {
+                "fieldId": "engine",
+                "id": "cond_engine_remark_others_visible",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {
+            "required": "Please add remarks for Others"
+          },
+          "field_key": "engine_remark",
+          "id": "engine_remark",
+          "label": "Engine - Other Remarks",
+          "options": [],
+          "placeholder": "Please specify",
+          "required": false,
+          "type": "textarea",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_engine_doc_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "engine_doc",
+          "helperText": "Optional - photos / documents (PDF, images)",
+          "id": "engine_doc",
+          "label": "Engine - Upload Docs",
+          "options": [],
+          "placeholder": "Upload file",
+          "required": false,
+          "type": "file_upload",
+          "uiType": "default",
+          "upload": {
+            "mode": "ON_SELECT",
+            "prepareApiSourceId": "GENERATE_REFURB_DOC_UPLOAD_URL",
+            "responseMapping": {
+              "documentIdPath": "$.data.pageInfoId",
+              "filePathPath": "$.data.attachmentUri",
+              "fileUrlPath": "$.data.attachmentUri",
+              "headersPath": "$.data.uploadHeaders",
+              "uploadUrlPath": "$.data.uploadUrl"
+            },
+            "strategy": "PRESIGNED_PUT"
+          }
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_exteriors_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "exteriors",
+          "id": "exteriors",
+          "label": "Exteriors",
+          "options": [
+            {
+              "label": "Paint Scratches / Dents to be repaired",
+              "value": "Paint Scratches / Dents to be repaired"
+            },
+            {
+              "label": "Windshield cowl imperfections to be fixed",
+              "value": "Windshield cowl imperfections to be fixed"
+            },
+            {
+              "label": "Fender/ body black cladding faded",
+              "value": "Fender/ body black cladding faded"
+            },
+            {
+              "label": "Door / roof moulding imperfections to be fixed",
+              "value": "Door / roof moulding imperfections to be fixed"
+            },
+            {
+              "label": "Rim scratches",
+              "value": "Rim scratches"
+            },
+            {
+              "label": "Others",
+              "value": "Others"
+            }
+          ],
+          "placeholder": "Select all that apply",
+          "required": false,
+          "type": "checkbox",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [
+              {
+                "fieldId": "exteriors",
+                "id": "cond_exteriors_remark_others_required",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_exteriors_remark_yes",
+                "operator": "equals",
+                "value": "Yes"
+              },
+              {
+                "fieldId": "exteriors",
+                "id": "cond_exteriors_remark_others_visible",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {
+            "required": "Please add remarks for Others"
+          },
+          "field_key": "exteriors_remark",
+          "id": "exteriors_remark",
+          "label": "Exteriors - Other Remarks",
+          "options": [],
+          "placeholder": "Please specify",
+          "required": false,
+          "type": "textarea",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_exteriors_doc_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "exteriors_doc",
+          "helperText": "Optional - photos / documents (PDF, images)",
+          "id": "exteriors_doc",
+          "label": "Exteriors - Upload Docs",
+          "options": [],
+          "placeholder": "Upload file",
+          "required": false,
+          "type": "file_upload",
+          "uiType": "default",
+          "upload": {
+            "mode": "ON_SELECT",
+            "prepareApiSourceId": "GENERATE_REFURB_DOC_UPLOAD_URL",
+            "responseMapping": {
+              "documentIdPath": "$.data.pageInfoId",
+              "filePathPath": "$.data.attachmentUri",
+              "fileUrlPath": "$.data.attachmentUri",
+              "headersPath": "$.data.uploadHeaders",
+              "uploadUrlPath": "$.data.uploadUrl"
+            },
+            "strategy": "PRESIGNED_PUT"
+          }
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_interiors_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "interiors",
+          "id": "interiors",
+          "label": "Interiors",
+          "options": [
+            {
+              "label": "Seat repair / cleaning required",
+              "value": "Seat repair / cleaning required"
+            },
+            {
+              "label": "Dashboard / trim issue",
+              "value": "Dashboard / trim issue"
+            },
+            {
+              "label": "Roof lining issue",
+              "value": "Roof lining issue"
+            },
+            {
+              "label": "Others",
+              "value": "Others"
+            }
+          ],
+          "placeholder": "Select all that apply",
+          "required": false,
+          "type": "checkbox",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [
+              {
+                "fieldId": "interiors",
+                "id": "cond_interiors_remark_others_required",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_interiors_remark_yes",
+                "operator": "equals",
+                "value": "Yes"
+              },
+              {
+                "fieldId": "interiors",
+                "id": "cond_interiors_remark_others_visible",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {
+            "required": "Please add remarks for Others"
+          },
+          "field_key": "interiors_remark",
+          "id": "interiors_remark",
+          "label": "Interiors - Other Remarks",
+          "options": [],
+          "placeholder": "Please specify",
+          "required": false,
+          "type": "textarea",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_interiors_doc_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "interiors_doc",
+          "helperText": "Optional - photos / documents (PDF, images)",
+          "id": "interiors_doc",
+          "label": "Interiors - Upload Docs",
+          "options": [],
+          "placeholder": "Upload file",
+          "required": false,
+          "type": "file_upload",
+          "uiType": "default",
+          "upload": {
+            "mode": "ON_SELECT",
+            "prepareApiSourceId": "GENERATE_REFURB_DOC_UPLOAD_URL",
+            "responseMapping": {
+              "documentIdPath": "$.data.pageInfoId",
+              "filePathPath": "$.data.attachmentUri",
+              "fileUrlPath": "$.data.attachmentUri",
+              "headersPath": "$.data.uploadHeaders",
+              "uploadUrlPath": "$.data.uploadUrl"
+            },
+            "strategy": "PRESIGNED_PUT"
+          }
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_lights_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "lights",
+          "id": "lights",
+          "label": "Lights",
+          "options": [
+            {
+              "label": "Headlights not working properly",
+              "value": "Headlights not working properly"
+            },
+            {
+              "label": "Brake lights issue",
+              "value": "Brake lights issue"
+            },
+            {
+              "label": "Fog lamp issue",
+              "value": "Fog lamp issue"
+            },
+            {
+              "label": "Others",
+              "value": "Others"
+            }
+          ],
+          "placeholder": "Select all that apply",
+          "required": false,
+          "type": "checkbox",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [
+              {
+                "fieldId": "lights",
+                "id": "cond_lights_remark_others_required",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_lights_remark_yes",
+                "operator": "equals",
+                "value": "Yes"
+              },
+              {
+                "fieldId": "lights",
+                "id": "cond_lights_remark_others_visible",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {
+            "required": "Please add remarks for Others"
+          },
+          "field_key": "lights_remark",
+          "id": "lights_remark",
+          "label": "Lights - Other Remarks",
+          "options": [],
+          "placeholder": "Please specify",
+          "required": false,
+          "type": "textarea",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_lights_doc_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "lights_doc",
+          "helperText": "Optional - photos / documents (PDF, images)",
+          "id": "lights_doc",
+          "label": "Lights - Upload Docs",
+          "options": [],
+          "placeholder": "Upload file",
+          "required": false,
+          "type": "file_upload",
+          "uiType": "default",
+          "upload": {
+            "mode": "ON_SELECT",
+            "prepareApiSourceId": "GENERATE_REFURB_DOC_UPLOAD_URL",
+            "responseMapping": {
+              "documentIdPath": "$.data.pageInfoId",
+              "filePathPath": "$.data.attachmentUri",
+              "fileUrlPath": "$.data.attachmentUri",
+              "headersPath": "$.data.uploadHeaders",
+              "uploadUrlPath": "$.data.uploadUrl"
+            },
+            "strategy": "PRESIGNED_PUT"
+          }
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_servicing_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "servicing",
+          "id": "servicing",
+          "label": "Servicing",
+          "options": [
+            {
+              "label": "Periodic service required",
+              "value": "Periodic service required"
+            },
+            {
+              "label": "Oil / filter service required",
+              "value": "Oil / filter service required"
+            },
+            {
+              "label": "Others",
+              "value": "Others"
+            }
+          ],
+          "placeholder": "Select all that apply",
+          "required": false,
+          "type": "checkbox",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [
+              {
+                "fieldId": "servicing",
+                "id": "cond_servicing_remark_others_required",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_servicing_remark_yes",
+                "operator": "equals",
+                "value": "Yes"
+              },
+              {
+                "fieldId": "servicing",
+                "id": "cond_servicing_remark_others_visible",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {
+            "required": "Please add remarks for Others"
+          },
+          "field_key": "servicing_remark",
+          "id": "servicing_remark",
+          "label": "Servicing - Other Remarks",
+          "options": [],
+          "placeholder": "Please specify",
+          "required": false,
+          "type": "textarea",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_servicing_doc_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "servicing_doc",
+          "helperText": "Optional - photos / documents (PDF, images)",
+          "id": "servicing_doc",
+          "label": "Servicing - Upload Docs",
+          "options": [],
+          "placeholder": "Upload file",
+          "required": false,
+          "type": "file_upload",
+          "uiType": "default",
+          "upload": {
+            "mode": "ON_SELECT",
+            "prepareApiSourceId": "GENERATE_REFURB_DOC_UPLOAD_URL",
+            "responseMapping": {
+              "documentIdPath": "$.data.pageInfoId",
+              "filePathPath": "$.data.attachmentUri",
+              "fileUrlPath": "$.data.attachmentUri",
+              "headersPath": "$.data.uploadHeaders",
+              "uploadUrlPath": "$.data.uploadUrl"
+            },
+            "strategy": "PRESIGNED_PUT"
+          }
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_steering_wheel_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "steering_wheel",
+          "id": "steering_wheel",
+          "label": "Steering Wheel",
+          "options": [
+            {
+              "label": "Steering noisy",
+              "value": "Steering noisy"
+            },
+            {
+              "label": "Steering alignment issue",
+              "value": "Steering alignment issue"
+            },
+            {
+              "label": "Others",
+              "value": "Others"
+            }
+          ],
+          "placeholder": "Select all that apply",
+          "required": false,
+          "type": "checkbox",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [
+              {
+                "fieldId": "steering_wheel",
+                "id": "cond_steering_wheel_remark_others_required",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_steering_wheel_remark_yes",
+                "operator": "equals",
+                "value": "Yes"
+              },
+              {
+                "fieldId": "steering_wheel",
+                "id": "cond_steering_wheel_remark_others_visible",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {
+            "required": "Please add remarks for Others"
+          },
+          "field_key": "steering_wheel_remark",
+          "id": "steering_wheel_remark",
+          "label": "Steering Wheel - Other Remarks",
+          "options": [],
+          "placeholder": "Please specify",
+          "required": false,
+          "type": "textarea",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_steering_wheel_doc_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "steering_wheel_doc",
+          "helperText": "Optional - photos / documents (PDF, images)",
+          "id": "steering_wheel_doc",
+          "label": "Steering Wheel - Upload Docs",
+          "options": [],
+          "placeholder": "Upload file",
+          "required": false,
+          "type": "file_upload",
+          "uiType": "default",
+          "upload": {
+            "mode": "ON_SELECT",
+            "prepareApiSourceId": "GENERATE_REFURB_DOC_UPLOAD_URL",
+            "responseMapping": {
+              "documentIdPath": "$.data.pageInfoId",
+              "filePathPath": "$.data.attachmentUri",
+              "fileUrlPath": "$.data.attachmentUri",
+              "headersPath": "$.data.uploadHeaders",
+              "uploadUrlPath": "$.data.uploadUrl"
+            },
+            "strategy": "PRESIGNED_PUT"
+          }
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_suspension_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "suspension",
+          "id": "suspension",
+          "label": "Suspension",
+          "options": [
+            {
+              "label": "Suspension noisy",
+              "value": "Suspension noisy"
+            },
+            {
+              "label": "Vehicle pulling / unstable",
+              "value": "Vehicle pulling / unstable"
+            },
+            {
+              "label": "Others",
+              "value": "Others"
+            }
+          ],
+          "placeholder": "Select all that apply",
+          "required": false,
+          "type": "checkbox",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [
+              {
+                "fieldId": "suspension",
+                "id": "cond_suspension_remark_others_required",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_suspension_remark_yes",
+                "operator": "equals",
+                "value": "Yes"
+              },
+              {
+                "fieldId": "suspension",
+                "id": "cond_suspension_remark_others_visible",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {
+            "required": "Please add remarks for Others"
+          },
+          "field_key": "suspension_remark",
+          "id": "suspension_remark",
+          "label": "Suspension - Other Remarks",
+          "options": [],
+          "placeholder": "Please specify",
+          "required": false,
+          "type": "textarea",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_suspension_doc_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "suspension_doc",
+          "helperText": "Optional - photos / documents (PDF, images)",
+          "id": "suspension_doc",
+          "label": "Suspension - Upload Docs",
+          "options": [],
+          "placeholder": "Upload file",
+          "required": false,
+          "type": "file_upload",
+          "uiType": "default",
+          "upload": {
+            "mode": "ON_SELECT",
+            "prepareApiSourceId": "GENERATE_REFURB_DOC_UPLOAD_URL",
+            "responseMapping": {
+              "documentIdPath": "$.data.pageInfoId",
+              "filePathPath": "$.data.attachmentUri",
+              "fileUrlPath": "$.data.attachmentUri",
+              "headersPath": "$.data.uploadHeaders",
+              "uploadUrlPath": "$.data.uploadUrl"
+            },
+            "strategy": "PRESIGNED_PUT"
+          }
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_transmission_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "transmission",
+          "id": "transmission",
+          "label": "Transmission",
+          "options": [
+            {
+              "label": "Gear shifting issue",
+              "value": "Gear shifting issue"
+            },
+            {
+              "label": "Transmission noisy",
+              "value": "Transmission noisy"
+            },
+            {
+              "label": "Others",
+              "value": "Others"
+            }
+          ],
+          "placeholder": "Select all that apply",
+          "required": false,
+          "type": "checkbox",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [
+              {
+                "fieldId": "transmission",
+                "id": "cond_transmission_remark_others_required",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_transmission_remark_yes",
+                "operator": "equals",
+                "value": "Yes"
+              },
+              {
+                "fieldId": "transmission",
+                "id": "cond_transmission_remark_others_visible",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {
+            "required": "Please add remarks for Others"
+          },
+          "field_key": "transmission_remark",
+          "id": "transmission_remark",
+          "label": "Transmission - Other Remarks",
+          "options": [],
+          "placeholder": "Please specify",
+          "required": false,
+          "type": "textarea",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_transmission_doc_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "transmission_doc",
+          "helperText": "Optional - photos / documents (PDF, images)",
+          "id": "transmission_doc",
+          "label": "Transmission - Upload Docs",
+          "options": [],
+          "placeholder": "Upload file",
+          "required": false,
+          "type": "file_upload",
+          "uiType": "default",
+          "upload": {
+            "mode": "ON_SELECT",
+            "prepareApiSourceId": "GENERATE_REFURB_DOC_UPLOAD_URL",
+            "responseMapping": {
+              "documentIdPath": "$.data.pageInfoId",
+              "filePathPath": "$.data.attachmentUri",
+              "fileUrlPath": "$.data.attachmentUri",
+              "headersPath": "$.data.uploadHeaders",
+              "uploadUrlPath": "$.data.uploadUrl"
+            },
+            "strategy": "PRESIGNED_PUT"
+          }
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_tyres_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "tyres",
+          "id": "tyres",
+          "label": "Tyres",
+          "options": [
+            {
+              "label": "Need new Tyres",
+              "value": "Need new Tyres"
+            },
+            {
+              "label": "TPMS light is on",
+              "value": "TPMS light is on"
+            },
+            {
+              "label": "Wheel balancing required",
+              "value": "Wheel balancing required"
+            },
+            {
+              "label": "Others",
+              "value": "Others"
+            }
+          ],
+          "placeholder": "Select all that apply",
+          "required": false,
+          "type": "checkbox",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [
+              {
+                "fieldId": "tyres",
+                "id": "cond_tyres_remark_others_required",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_tyres_remark_yes",
+                "operator": "equals",
+                "value": "Yes"
+              },
+              {
+                "fieldId": "tyres",
+                "id": "cond_tyres_remark_others_visible",
+                "operator": "contains",
+                "value": "Others"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {
+            "required": "Please add remarks for Others"
+          },
+          "field_key": "tyres_remark",
+          "id": "tyres_remark",
+          "label": "Tyres - Other Remarks",
+          "options": [],
+          "placeholder": "Please specify",
+          "required": false,
+          "type": "textarea",
+          "uiType": "default"
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_tyres_doc_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "tyres_doc",
+          "helperText": "Optional - photos / documents (PDF, images)",
+          "id": "tyres_doc",
+          "label": "Tyres - Upload Docs",
+          "options": [],
+          "placeholder": "Upload file",
+          "required": false,
+          "type": "file_upload",
+          "uiType": "default",
+          "upload": {
+            "mode": "ON_SELECT",
+            "prepareApiSourceId": "GENERATE_REFURB_DOC_UPLOAD_URL",
+            "responseMapping": {
+              "documentIdPath": "$.data.pageInfoId",
+              "filePathPath": "$.data.attachmentUri",
+              "fileUrlPath": "$.data.attachmentUri",
+              "headersPath": "$.data.uploadHeaders",
+              "uploadUrlPath": "$.data.uploadUrl"
+            },
+            "strategy": "PRESIGNED_PUT"
+          }
+        },
+        {
+          "apiSourceId": null,
+          "apiVariableBindings": {},
+          "conditions": {
+            "disabled": [],
+            "required": [],
+            "visible": [
+              {
+                "fieldId": "refurb_select",
+                "id": "cond_other_comments_yes",
+                "operator": "equals",
+                "value": "Yes"
+              }
+            ]
+          },
+          "dataSource": "static",
+          "errorMessages": {},
+          "field_key": "other_refurbish_comments",
+          "id": "other_refurbish_comments",
+          "label": "Other Refurbish Comments",
+          "options": [],
+          "placeholder": "Add any additional comments",
+          "required": false,
+          "type": "textarea",
+          "uiType": "default"
+        }
+      ],
+      "id": "sales-promise-checklist-page",
+      "navigation": {
+        "next": {
+          "action": "CUSTOM_API",
+          "apiSourceId": "SUBMIT_SALES_PROMISE_CHECKLIST",
+          "disableWhileLoading": true,
+          "failureBehavior": "BLOCK",
+          "successBehavior": "SUBMIT_FORM",
+          "text": "Submit",
+          "type": "submit"
+        },
+        "previous": {
+          "action": "PREVIOUS_PAGE",
+          "text": "Back",
+          "type": "button"
+        }
+      },
+      "title": "Sales Promise Refurbishment Checklist"
+    }
+  ]
+}
