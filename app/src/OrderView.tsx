@@ -159,7 +159,7 @@ function Tiles({ o }: { o: Order }) {
     { k: 'Payment', v: pay ? stageDef(pay).label : '—', s: outstanding(o) > 0 ? `${money(outstanding(o))} outstanding` : 'Paid in full', bad: pay && stageDef(pay).kind === 'fail' },
     { k: 'Contract', v: con ? stageDef(con).label : '—', s: o.bypassContract ? 'Gate bypassed by RM' : 'RM-owned', bad: con && stageDef(con).kind === 'fail' },
     { k: 'Car prep', v: prep ? `${JOURNEYS[prep.journey].name}: ${stageDef(prep).label}` : task(o, 'rwc') ? 'Refurb GFD ✓' : 'Waiting for GFR', s: prep?.fields.reworkEta ? `Rework ETA ${prep.fields.reworkEta}` : prep?.fields.qcEta ? `QC fix ETA ${prep.fields.qcEta}` : hsDealStage(o), bad: prep && stageDef(prep).kind === 'fail' },
-    { k: 'Slot', v: o.slot ? `${o.slot.date} · ${o.slot.time}` : gatesClear(o) ? 'Open to book' : 'Blocked', s: `${gateStatus(o).filter((g) => g.ok).length}/4 gates clear`, bad: false },
+    { k: 'Slot', v: o.slot ? `${o.slot.date} · ${o.slot.time}` : gatesClear(o) ? 'Open to book' : 'Blocked', s: `${gateStatus(o).filter((g) => g.ok).length}/${gateStatus(o).length} gates clear`, bad: false },
   ];
   return (
     <div className="tiles">
@@ -364,7 +364,7 @@ export function OrderView({ o, persona, now, focus, onFocus, onField, onMove, on
         {item?.kind === 'slot' && (
           <div className="ws-body">
             <div className="ws-h">Delivery slot</div>
-            <div className="ws-guide">The slot opens when Finance GFD, contract, Refurb GFD (which needs rego) and — for interstate cars — hub arrival are all done. This is HubSpot's DW06a check and OMS <span className="mono">isDeliveryBookingAllowed()</span>.</div>
+            <div className="ws-guide">The slot opens when Finance GFD, contract signed, registered and Refurb GFD are all done (HubSpot DW06a) and, for interstate cars, the car is at the hub (OMS <span className="mono">isDeliveryBookingAllowed()</span>).</div>
             <Tiles o={o} />
             <div className="gatebox">
               {gateStatus(o).map((g) => {

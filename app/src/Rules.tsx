@@ -15,12 +15,37 @@ const RM_PROPS = [
   ['Other teams (read-only)', 'RWC no. + rework ETA, rego no., QC result, VAS install, transit ETA', 'rwc_number, NEW rework_eta, regoNumber, hub_delivery_eta, eta_date'],
 ];
 
+// HubSpot ticket pipelines: what creates the ticket, what moves it, what completes it (read 16 Nov 2026).
+const PIPES: [string, string, string, string, string][] = [
+  ['01a Cash', '01_START · deal Booked/Reserved, payment mode 100% Online / Bank Transfer', 'Full → Finance GFD · bank transfer → Deposit remittance · split → First Instalment Paid', 'TW01a: each deposit → outstanding 0 ? Finance GFD : Awaiting Additional Deposit', 'Finance GFD → deal finance_gfd_date (DW01e). GFR already at First Instalment (DW01b)'],
+  ['01b BYO', '01_START · payment mode BYO', 'Awaiting Approval from 3P Lender', '—', 'Loan Settled. GFR at Approved from 3P Lender; GFD date at Remittance Advice'],
+  ['01c Consumer finance', '01_START · payment mode Consumer Finance', 'Deposit Paid', '—', 'Loan Settled (or Declined / Withdrawn). GFR from Medium Confidence'],
+  ['01d In-house finance', '01_START · GLOBAL CARS AUS CREDIT (BAD cohort: own flow)', 'Awaiting Documents, or Application completed if docs + application done', 'INHF full payment: outstanding 0 → Loan Settled-GFD', 'Loan Settled-GFD. GFR at Approved, Ready for Rego (or prime/stable + interstate)'],
+  ['02 Sales contracts', '01_START · every booking', 'Vehicle Sold · owner by delivery state', 'Labels only: Contract not sent / not signed', 'Contract Signed (6 fields) → deal contract_signed_date (TW02a)'],
+  ['03 Pre-interstate inspection', 'DW02 · GFR ∧ interstate', 'To Be Inspected · owner by car state', '—', 'Refurb GFIT → deal refurb_gfit_date (TW03a)'],
+  ['04 Interstate transit', 'DW03 · Finance GFIT ∧ Refurb GFIT', 'GFIT', 'ETA → deal; Cars in Transit → departure date, deal 3', 'Interstate Arrival → deal 4 + creates 05 (TW03d)'],
+  ['05 Refurb pre-GFD', 'DW02 (local) or TW03d (after arrival)', 'Awaiting Refurb · owner by delivery state', 'VIC: → Transported to delivery hub at a finance milestone', 'RWC confirmed → creates 06 (TW04). Refurb GFD → deal refurb_gfd_date (TW06) → DW06a'],
+  ['05b VAS operations', 'One workflow per product · IHF at GFR, Cash/BYO at Finance GFD, NSW once car local', 'Selected Products (scratch & dent, servicing: Post delivery – Schmick)', 'Auto-cancel when product un-ticked or deal cancelled', 'Partially installed / All completed — by hand only'],
+  ['06 Registration', 'TW04 · RWC confirmed', 'To be Registered · owner by delivery state', '—', 'Registration Complete or Submitted (QLD) → deal registered_date (TW05)'],
+  ['07 Active deliveries', 'DW06a / DW06b · Finance GFD ∧ Registered ∧ Refurb GFD ∧ Contract signed', 'To be Delivered · owner by delivery state; deal 8', 'delivery_mode → 3PL / Carcierge / pick-up date', 'Delivered → deal actual_delivery_date, deal 9, creates 08 (TW08)'],
+  ['07b Warranty', 'DW07b · deal 9/10, +5 min', 'Default warranty (+ extended if EW / Integrity / RSA)', '—', 'Warranty sent to customer — by hand'],
+  ['08 Check-ins', 'TW08 · delivered', 'Delivered to Customer', '—', 'Day 7 Check Completed — by hand'],
+  ['09 Transfers', 'DW10 · 6 days after delivery', 'Awaiting Transfer · owner by state', '—', 'Transferred / No transfer required'],
+];
+
+const OBJECTS: [string, string, string][] = [
+  ['Deal (= order)', 'Where the logic lives', 'Triggers: status, dealstage, payment_mode, payment_method, deposit_amount, outstanding amount, trade_in, delivery_state, car_location_at_time_of_sale, interstate_transit_required, finance_score, VAS *_opted. Dates stamped by workflows: gfr_date, finance_gfd_date, refurb_gfit_date, interstate_arrival_date, rwc, registered_date, refurb_gfd_date, contract_signed_date, actual_delivery_date. Labels L01–L11. Owner = RM'],
+  ['Ticket (= team task)', 'Team input', 'hs_pipeline_stage plus the confirmations each team fills: finance_gfd, recall_check_status, contract_signed, contract/tax/transfer links, passed_inspection, eta_date, rwc_completed_confirmation, rwc_serial_number, refurb_gfd_confirmation, rego fields, actual_delivery_date. Copies from the deal: payment mode, finance GFD date, split payment count'],
+  ['Contact', 'Not a gate', 'lifecyclestage → opportunity at booking; check-in / walk-in date synced'],
+  ['Car (custom object)', 'Not a gate', 'cars24_rwc_date copied from the ticket rwc_issue_date'],
+];
+
 export function Rules() {
-  const [tab, setTab] = useState<'rules' | 'map' | 'gate' | 'props'>('rules');
+  const [tab, setTab] = useState<'rules' | 'pipes' | 'map' | 'gate' | 'props'>('rules');
   return (
     <>
       <div className="tabs">
-        {([['rules', 'Trigger rules'], ['map', 'Pipeline → journey map'], ['gate', 'Slot gate & back-sync'], ['props', 'RM left panel']] as const).map(([k, l]) => (
+        {([['rules', 'Trigger rules'], ['pipes', 'Ticket pipelines: create → complete'], ['map', 'Pipeline → journey map'], ['gate', 'Slot gate & back-sync'], ['props', 'RM left panel']] as const).map(([k, l]) => (
           <button key={k} className={'fchip' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}>{l}</button>
         ))}
       </div>
@@ -45,6 +70,28 @@ export function Rules() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {tab === 'pipes' && (
+        <>
+          <div className="card">
+            <div className="ct">How every HubSpot ticket pipeline is created, moved and completed</div>
+            <div className="cs">From the 67 enabled post-deposit workflow definitions. A team fills a ticket field or moves its ticket → a deal workflow stamps a date on the deal and moves the deal stage → another deal workflow creates the next team's ticket. "Complete" is the stage HubSpot marks CLOSED.</div>
+            <div style={{ overflowX: 'auto' }}>
+              <table className="t" style={{ marginTop: 12 }}>
+                <thead><tr><th>Pipeline</th><th>Created by</th><th>Entry stage</th><th>Moves by itself</th><th>Complete → triggers</th></tr></thead>
+                <tbody>{PIPES.map((r) => <tr key={r[0]}><td><b>{r[0]}</b></td>{r.slice(1).map((c, i) => <td key={i} style={{ fontSize: 12.5 }}>{c}</td>)}</tr>)}</tbody>
+              </table>
+            </div>
+          </div>
+          <div className="card">
+            <div className="ct">Which object holds what</div>
+            <table className="t" style={{ marginTop: 12 }}>
+              <thead><tr><th>Object</th><th>Role</th><th>Properties used by the logic</th></tr></thead>
+              <tbody>{OBJECTS.map((r) => <tr key={r[0]}><td><b>{r[0]}</b></td><td>{r[1]}</td><td style={{ fontSize: 12.5 }}>{r[2]}</td></tr>)}</tbody>
+            </table>
+          </div>
+        </>
       )}
 
       {tab === 'map' && (
@@ -110,7 +157,7 @@ export function Rules() {
               ))}
             </tbody>
           </table>
-          <div className="statusline" style={{ marginTop: 12 }}>HubSpot's own check is stricter: <b>DW06a</b> waits 5 minutes after Refurb GFD, then needs Finance GFD ∧ <b>Registered Date</b> ∧ Refurb GFD ∧ Contract Signed and no open 07 ticket. Only then does it set 8: Delivery Booked: GFD and create the 07 delivery ticket (owner by delivery state). Otherwise the deal goes to 7: Awaiting on blockers, and <b>DW06b</b> keeps re-checking. In LeadVerse, Refurb GFD cannot be given before rego is complete, so the registration check is built in.</div>
+          <div className="statusline" style={{ marginTop: 12 }}>HubSpot's own check is stricter: <b>DW06a</b> waits 5 minutes after Refurb GFD, then needs Finance GFD ∧ <b>Registered Date</b> ∧ Refurb GFD ∧ Contract Signed and no open 07 ticket. Only then does it set 8: Delivery Booked: GFD and create the 07 delivery ticket (owner by delivery state). Otherwise the deal goes to 7: Awaiting on blockers, and <b>DW06b</b> keeps re-checking. LeadVerse uses both: Registered is a gate (HubSpot) and so is hub arrival for interstate cars (OMS).</div>
           <div className="statusline" style={{ marginTop: 8 }}>Proposed change (R3): VAS, warranty and tint never block. RM can bypass the contract gate (the existing HubSpot property <span className="mono">by_pass_contract_gfd_for_delivery_slots</span>), logged on the timeline.</div>
         </div>
       )}

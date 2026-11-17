@@ -39,6 +39,7 @@ export interface Order {
   deliveryMode: 'Pick up' | 'Home delivery';
   interstate: boolean;
   depositAt: number;
+  gfrAt?: number; // HubSpot deal gfr_date
   slot?: { date: string; time: string; by: string; override?: boolean };
   bypassContract: boolean;
   tasks: Task[];
@@ -74,10 +75,17 @@ function createTask(o: Order, j: JourneyId, at: number, rule: string, item?: str
 }
 
 // ---------- gates ----------
+// TW05: Registration Complete, or Registration Submitted for QLD, stamps registered_date.
+export function isRegistered(o: Order) {
+  const t = task(o, 'rego');
+  return !!t && (isDone(t) || t.stage === 'qld');
+}
+
 export function gateStatus(o: Order) {
   return GATES.map((g) => {
     if (g.key === 'hub' && !o.interstate) return { ...g, ok: true, na: true };
     if (g.key === 'contract' && o.bypassContract && !isDone(task(o, 'contract'))) return { ...g, ok: true, override: true };
+    if (g.key === 'rego') return { ...g, ok: isRegistered(o) };
     return { ...g, ok: isDone(task(o, g.journey)) };
   });
 }
@@ -87,8 +95,8 @@ export function rmStage(o: Order): RmStageKey {
   if (isDone(task(o, 'delivery'))) return 'delivered';
   if (o.slot) return 'booked';
   if (!isDone(task(o, 'onboard'))) return 'new';
-  const prepJourneys: JourneyId[] = o.interstate ? ['transit', 'rwc', 'rego', 'refurb'] : ['rwc', 'rego', 'refurb'];
-  const prep = prepJourneys.some((j) => !isDone(task(o, j)));
+  const prepJourneys: JourneyId[] = o.interstate ? ['transit', 'rwc', 'refurb'] : ['rwc', 'refurb'];
+  const prep = prepJourneys.some((j) => !isDone(task(o, j))) || !isRegistered(o);
   if (prep) return 'prep';
   return gatesClear(o) ? 'ready' : 'blockers';
 }
@@ -101,9 +109,10 @@ export function hsDealStage(o: Order) {
   if (s === 'booked') return '8: Delivery Booked: GFD';
   if (o.interstate && !isDone(task(o, 'transit'))) return task(o, 'transit')?.stage === 'moving' ? '3: Interstate Transit In Progress' : '2: Awaiting Interstate Transit';
   if (!isDone(task(o, 'rwc'))) return '4: Awaiting RWC';
-  if (!isDone(task(o, 'rego'))) return '5: Awaiting Registration';
-  if (!isDone(task(o, 'refurb'))) return '6: Awaiting Refurb GFD';
-  return '7: Awaiting on blockers';
+  // DW06a: Refurb GFD with any other date missing parks the deal at 7.
+  if (isDone(task(o, 'refurb'))) return '7: Awaiting on blockers';
+  if (!isRegistered(o)) return '5: Awaiting Registration';
+  return '6: Awaiting Refurb GFD';
 }
 
 // ---------- events ----------
@@ -120,20 +129,33 @@ export function createOrder(base: Omit<Order, 'tasks' | 'activity' | 'bypassCont
 
 // GFR (Go For Refurb): the customer's money is committed, so car prep can start.
 // HubSpot: DW01b stamps GFR Date from the finance ticket stage, DW02 creates the 05 ticket.
-export const hasGfr = (o: Order) => !!task(o, 'rwc');
+export const hasGfr = (o: Order) => !!o.gfrAt;
 function fireGfr(o: Order, at: number) {
   if (hasGfr(o)) return;
+  o.gfrAt = at;
   log(o, { at, who: 'Workflow', kind: 'rule', rule: 'R-03', text: `GFR reached (${o.paymentMode === 'Cash' ? 'first instalment paid' : o.paymentMode === 'BYO' ? 'approved by 3P lender' : 'loan approved'}) — car prep starts` });
-  createTask(o, 'rwc', at, 'R-03');
+  // DW02 branches on interstate_transit_required: 03 inspection ticket, or the 05 refurb ticket.
   if (o.interstate) createTask(o, 'transit', at, 'R-02');
-  if (o.paymentMode !== 'Cash') o.vas.forEach((v) => createTask(o, 'vas', at, 'R-04', v.name));
+  else createTask(o, 'rwc', at, 'R-03');
+}
+
+// One "VAS ticket pipelines – <product>" workflow per product. In-house finance goes at GFR
+// (dashcam still waits for Finance GFD); Cash and BYO wait for Finance GFD; NSW also waits
+// until the car is local. Extended warranty is a 07b warranty ticket, not a VAS install.
+function vasCheck(o: Order, at: number) {
+  if (!hasGfr(o)) return;
+  const financeGfd = isDone(task(o, 'payment'));
+  const local = o.customer.state !== 'NSW' || !o.interstate || isDone(task(o, 'transit'));
+  o.vas.forEach((v) => {
+    if (/warranty/i.test(v.name) || task(o, 'vas', v.name)) return;
+    const money = o.paymentMode === 'Cars24 finance' && !/dash ?cam/i.test(v.name) ? true : financeGfd;
+    if (money && local) createTask(o, 'vas', at, 'R-04', v.name);
+  });
 }
 
 export interface MoveResult { ok: boolean; reason?: string }
 
 export function canMove(o: Order, t: Task, to: string): MoveResult {
-  if (t.journey === 'refurb' && to === 'gfd' && !isDone(task(o, 'rego')))
-    return { ok: false, reason: 'Registration is not complete yet (rule R-06). Refurb GFD opens once rego is done.' };
   if (t.journey === 'delivery' && to === 'today' && !o.slot)
     return { ok: false, reason: 'No slot booked yet (rule R-08). The RM or the customer books the slot first.' };
   return { ok: true };
@@ -156,7 +178,7 @@ export function move(o: Order, t: Task, to: string, by: PersonaId | 'system', at
   if (t.journey === 'onboard' && to === 'done')
     log(o, { at, who: 'Workflow', kind: 'comms', text: 'Recap email sent from template with deal fields merged' });
   if (t.journey === 'payment' && to !== 'deposit') fireGfr(o, at);
-  if (t.journey === 'payment' && to === 'gfd' && o.paymentMode === 'Cash') o.vas.forEach((v) => createTask(o, 'vas', at, 'R-04', v.name));
+  if (t.journey === 'transit' && to === 'arrived') createTask(o, 'rwc', at, 'R-11');
   if (t.journey === 'rwc' && to === 'complete') {
     createTask(o, 'rego', at, 'R-05');
     createTask(o, 'refurb', at, 'R-05');
@@ -167,11 +189,13 @@ export function move(o: Order, t: Task, to: string, by: PersonaId | 'system', at
     createTask(o, 'checkin', at, 'R-09');
     log(o, { at, who: 'Workflow', kind: 'comms', text: 'Thank-you email + warranty pack queued' });
   }
+  vasCheck(o, at);
   checkGates(o, at);
   return { ok: true };
 }
 
-// HubSpot DW06a: once every gate is set, create the 07 delivery ticket (owner by delivery state).
+// HubSpot DW06a/DW06b: Finance GFD ∧ Registered ∧ Refurb GFD ∧ Contract signed → 07 delivery
+// ticket (owner by delivery state). OMS adds hub arrival for interstate cars.
 function checkGates(o: Order, at: number) {
   if (!gatesClear(o) || task(o, 'delivery')) return;
   log(o, { at, who: 'Workflow', kind: 'gate', rule: 'R-07', text: 'All gates clear — Handover task created for Delivery, slot booking open, customer sent a self-book link' });

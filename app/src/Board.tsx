@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { JOURNEYS, PERSONAS, RM_STAGES, type JourneyId, type PersonaId } from './model';
-import { fmtAge, gateStatus, isDone, money, outstanding, rmStage, slaState, stageDef, task, type Order, type Task } from './engine';
+import { fmtAge, gateStatus, hasGfr, isDone, isRegistered, money, outstanding, rmStage, slaState, stageDef, task, type Order, type Task } from './engine';
 import { TaskCard } from './TaskCard';
 
 export const PERSONA_JOURNEYS: Record<PersonaId, JourneyId[]> = {
@@ -9,10 +9,10 @@ export const PERSONA_JOURNEYS: Record<PersonaId, JourneyId[]> = {
 
 export function GateDots({ o }: { o: Order }) {
   return (
-    <span className="gates" title="Slot gates: Finance · Contract · Refurb · Hub">
+    <span className="gates" title="Slot gates: Finance · Contract · Registered · Refurb GFD · Hub">
       {gateStatus(o).map((g) => (
         <span key={g.key} className={'gdot ' + ('na' in g && g.na ? 'na' : 'override' in g && g.override ? 'ov' : g.ok ? 'ok' : '')} title={g.label + ('na' in g && g.na ? ' — not interstate' : g.ok ? ' ✓' : ' — open')}>
-          {g.label[0]}
+          {g.short}
         </span>
       ))}
     </span>
@@ -28,13 +28,13 @@ export function rmNext(o: Order, now: number): { text: string; tone: string } {
   }
   if (s === 'prep') {
     const rwc = task(o, 'rwc');
-    if (!rwc) return { text: o.paymentMode === 'Cash' ? 'Waiting for GFR · first instalment' : o.paymentMode === 'BYO' ? 'Waiting for GFR · 3P lender approval' : 'Waiting for GFR · loan approval', tone: 'c-amber' };
+    if (!hasGfr(o)) return { text: o.paymentMode === 'Cash' ? 'Waiting for GFR · first instalment' : o.paymentMode === 'BYO' ? 'Waiting for GFR · 3P lender approval' : 'Waiting for GFR · loan approval', tone: 'c-amber' };
+    if (o.interstate && !isDone(task(o, 'transit'))) return { text: task(o, 'transit')?.stage === 'moving' ? 'Car in interstate transit' : 'Pre-transit inspection', tone: 'c-blue' };
     if (rwc?.stage === 'fail') return { text: `RWC failed · rework ETA ${rwc.fields.reworkEta || 'missing'}`, tone: 'c-red' };
     const ref = task(o, 'refurb');
     if (ref?.stage === 'qcFail') return { text: `QC failed · fix ETA ${ref.fields.qcEta || 'missing'}`, tone: 'c-red' };
-    if (o.interstate && !isDone(task(o, 'transit'))) return { text: 'Car in interstate transit', tone: 'c-blue' };
     if (!isDone(rwc)) return { text: 'Waiting on roadworthy', tone: 'c-grey' };
-    if (!isDone(task(o, 'rego'))) return { text: 'Waiting on registration', tone: 'c-grey' };
+    if (!isRegistered(o)) return { text: 'Waiting on registration', tone: 'c-grey' };
     return { text: 'Waiting on detail & QC', tone: 'c-grey' };
   }
   if (s === 'blockers') return { text: 'Open: ' + gateStatus(o).filter((g) => !g.ok).map((g) => g.label).join(', '), tone: 'c-amber' };
