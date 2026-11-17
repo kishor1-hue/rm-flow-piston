@@ -7,6 +7,7 @@ import {
   isDone, missingFields, money, orderTotal, outstanding, recordPayment, setDeliveryMode, skipStep, stageDef, task, type Order, type Task,
 } from './engine';
 import { Field } from './TaskCard';
+import { proofPng } from './proof';
 
 export type RmStep = 'deposit' | 'docs' | 'promise' | 'discount' | 'tradein' | 'balance' | 'delivery';
 type Act = (fn: (o: Order, at: number) => void) => void;
@@ -96,6 +97,7 @@ interface Props {
 
 export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMove, onBook, onBypass, onComms, act }: Props) {
   const [menu, setMenu] = useState(false);
+  const [zoom, setZoom] = useState(false);
   const [date, setDate] = useState('Tue 17 Nov');
   const [time, setTime] = useState('11:00 am');
   const promisedOff = Number((o.promises.join(' ').match(/\$(\d+)\s*off/i) || [])[1] || 0);
@@ -172,12 +174,16 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
         {bank ? (
           <>
             <div className="sec-h">Payment proof <span className="hs">proof_of_payment_link</span></div>
-            <div className="proof-img">
-              <div className="pi-bank">Bank transfer receipt</div>
-              <div className="pi-amt">{money(o.depositPaid)}</div>
-              <div className="pi-ref">To CARS24 AUS · ref {o.id}</div>
-              <div className="pi-file mono">{o.proofUrl}</div>
-            </div>
+            <button className="proof-shot" onClick={() => setZoom(true)} aria-label="Open payment proof">
+              <img src={proofPng(o)} alt={`Bank transfer receipt for ${o.id}`} />
+              <span className="ps-cap"><b>{(o.proofUrl || '').split('/').pop()}</b><small>Uploaded by customer · {fmtAge(Date.now() - o.depositAt)} ago · click to enlarge</small></span>
+            </button>
+            {zoom && (
+              <div className="lightbox" onClick={() => setZoom(false)}>
+                <img src={proofPng(o)} alt={`Bank transfer receipt for ${o.id}`} />
+                <button className="lb-x" aria-label="Close">×</button>
+              </div>
+            )}
             {!pending && <div className="statusline">Proof verified. First instalment confirmed and car prep has started (GFR).</div>}
           </>
         ) : (

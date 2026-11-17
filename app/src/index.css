@@ -458,3 +458,13 @@ td.empty { cursor: default; }
 .calc .tot span, .calc .tot b { color: var(--ink); font-weight: 700; }
 .statusline.warn { background: var(--amber-bg); border-color: #F7D9AE; color: var(--amber-ink); }
 @media (max-width: 860px) { .tform { grid-template-columns: 1fr; } }
+
+.proof-shot { display: flex; align-items: flex-end; gap: 14px; border: 1px solid var(--line-2); border-radius: 12px; background: #fff; padding: 10px; cursor: zoom-in; font: inherit; text-align: left; max-width: 100%; }
+.proof-shot img { width: 150px; height: auto; border-radius: 8px; border: 1px solid var(--line-2); display: block; }
+.proof-shot:hover { border-color: var(--lv); }
+.ps-cap { display: flex; flex-direction: column; gap: 3px; font-size: 13px; min-width: 0; padding-bottom: 4px; }
+.ps-cap b { font-family: ui-monospace, Menlo, monospace; font-size: 12px; overflow-wrap: anywhere; }
+.ps-cap small { color: var(--mute); }
+.lightbox { position: fixed; inset: 0; background: rgba(15, 23, 43, .72); display: grid; place-items: center; z-index: 50; cursor: zoom-out; padding: 24px; }
+.lightbox img { max-height: 92vh; max-width: 92vw; border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.4); }
+.lb-x { position: absolute; top: 18px; right: 22px; width: 36px; height: 36px; border-radius: 50%; border: 0; background: #fff; font-size: 22px; cursor: pointer; }
