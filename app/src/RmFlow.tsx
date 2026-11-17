@@ -1,10 +1,10 @@
 // RM cash journey: one guided action flow per order, from deposit to delivery.
 // Each step is an action; the "LeadVerse will" list is what the backend does in place of HubSpot workflows.
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { JOURNEYS, PERSONAS, type TransitionDef } from './model';
 import {
   applyDiscount, approveDiscount, availableNext, canMove, DISCOUNT_LIMIT, finaliseTradeIn, fmtAge, gatesClear, gateStatus,
-  isDone, missingFields, money, orderTotal, outstanding, recordPayment, setDeliveryMode, skipStep, stageDef, task, type Order, type Task,
+  addVas, dap, govtCharges, isDone, missingFields, money, removeVas, VAS_CATALOG, vasTotal, type PlanType, orderTotal, outstanding, recordPayment, setDeliveryMode, skipStep, stageDef, task, type Order, type Task,
 } from './engine';
 import { Field } from './TaskCard';
 import { proofPng } from './proof';
@@ -31,12 +31,13 @@ function prefillChecklist(promises: string[]): FormValues {
   return v;
 }
 
-export type RmStep = 'deposit' | 'discount' | 'docs' | 'promise' | 'tradein' | 'balance' | 'delivery';
+export type RmStep = 'deposit' | 'discount' | 'vas' | 'docs' | 'promise' | 'tradein' | 'balance' | 'delivery';
 type Act = (fn: (o: Order, at: number) => void) => void;
 
 const STEPS: { key: RmStep; label: string; where: string }[] = [
   { key: 'deposit', label: 'Verify deposit', where: 'Finance ticket · HubSpot 01a' },
   { key: 'discount', label: 'Discount', where: 'B2C admin · Discount codes' },
+  { key: 'vas', label: 'Add VAS', where: 'B2C admin · VAS Sales' },
   { key: 'docs', label: 'Customer documents', where: 'Customer documents ticket · HubSpot 02' },
   { key: 'promise', label: 'Sales promise', where: 'Deal property sales_promise_' },
   { key: 'tradein', label: 'Trade-in', where: 'B2C admin · Add trade-in' },
@@ -48,6 +49,7 @@ export function stepDone(o: Order, k: RmStep): boolean {
   const pay = task(o, 'payment');
   if (k === 'deposit') return !!pay && pay.stage !== 'deposit';
   if (k === 'docs') return isDone(task(o, 'contract'));
+  if (k === 'vas') return !!o.rmDone.vas;
   if (k === 'promise') return !!o.rmDone.promise;
   if (k === 'discount') return !!o.rmDone.discount && o.discount?.status !== 'Awaiting approval';
   if (k === 'tradein') return !o.tradeIn || !!o.rmDone.tradein;
@@ -118,7 +120,8 @@ function PriceBreakdown({ o }: { o: Order }) {
           <thead><tr><th>Item</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
           <tbody>
             {r(`${o.car.year} ${o.car.make} ${o.car.model}`, o.price, { note: 'Car price' })}
-            {o.vas.map((v) => r(v.name, v.price, { note: 'Add-on' }))}
+            {r('Govt charges', govtCharges(o).total, { note: 'Duty, 3 months registration, CTP, transfer, handling' })}
+            {o.vas.filter((v) => v.price > 0).map((v) => r(v.name, v.price, { note: 'Add-on' }))}
             {o.shipping > 0 && r('Shipping', o.shipping, { note: 'Home delivery' })}
             {o.discount && r('Discount', o.discount.status === 'Applied' ? o.discount.amount : 0, { neg: true, note: o.discount.status === 'Applied' ? o.discount.reason : `${money(o.discount.amount)} awaiting approval` })}
             {o.tradeIn && r('Trade-in', o.tradeIn.value, { neg: true, note: o.tradeIn.car })}
@@ -129,6 +132,85 @@ function PriceBreakdown({ o }: { o: Order }) {
         </table>
       </div>
     </>
+  );
+}
+
+// Price breakup - DAP (drive-away price), as in the B2C admin order page.
+function DapBreakup({ o }: { o: Order }) {
+  const g = govtCharges(o);
+  const paid = o.payments.reduce((a, x) => a + x.amount, 0);
+  const disc = o.discount?.status === 'Applied' ? o.discount.amount : 0;
+  const rows: [string, number | string, string?][] = [
+    ['EGC', o.price],
+    ['Govt Charges', g.total, 'grp'],
+    ['Registration Transfer Fees', g.transfer, 'sub'], ['Motor vehicle duty', g.duty, 'sub'], [`${g.months} months registration`, g.rego, 'sub'], ['CTP insurance', g.ctp, 'sub'], ['Handling fee', g.handling, 'sub'],
+    ['Hub2Hub Delivery Fees', 0], ['Home Delivery fees', o.shipping], ['VAS Charges', vasTotal(o)], ['Accessories Amount', 0],
+    ['DAP', dap(o), 'sum'],
+    ['Discount Value', disc ? -disc : 0], ['Trade in Value', o.tradeIn ? -o.tradeIn.value : 0],
+    ['Total Amount to be Paid', orderTotal(o), 'sum'], ['Total Amount Paid', paid], ['Total Outstanding', outstanding(o), 'due'],
+    ['Credit note value', 0],
+  ];
+  return (
+    <>
+      <div className="sec-h">Price breakup - DAP (Drive away price)</div>
+      <div className="tbox">
+        <table className="tl-t pb">
+          <thead><tr><th>Item</th><th>Price</th></tr></thead>
+          <tbody>{rows.map(([k, v, c]) => (
+            <tr key={k} className={c === 'sum' ? 'pb-sum' : c === 'due' ? 'pb-due' + (v ? '' : ' paid') : c === 'sub' ? 'pb-subrow' : ''}>
+              <td>{k}</td><td>{typeof v === 'number' ? (v < 0 ? '− ' + money(-v) : money(v)) : v}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function RegistrationDetails({ o }: { o: Order }) {
+  const g = govtCharges(o);
+  const rows: [string, string][] = [['Registration Opted', 'Yes'], ['Opted Registration Months', `${g.months} months`], ['Total Charges', money(g.total)], ['Stamp duty', money(g.duty)], ['CTP', money(g.ctp)], ['Transfer fee', money(g.transfer)], ['Registration fee', money(g.rego)], ['Number Plates type', g.plates], ['Handling fee', money(g.handling)]];
+  return (
+    <>
+      <div className="sec-h">Registration</div>
+      <div className="kvgrid">{rows.map(([k, v]) => <div key={k}><span>{k}</span><b>{v}</b></div>)}</div>
+    </>
+  );
+}
+
+function AddVasModal({ o, onClose, onAdd }: { o: Order; onClose: () => void; onAdd: (type: PlanType, name: string) => void }) {
+  const [type, setType] = useState<keyof typeof VAS_CATALOG | ''>('');
+  const [plan, setPlan] = useState('');
+  const have = new Set(o.vas.map((v) => v.name));
+  const plans = type ? VAS_CATALOG[type] : [];
+  const pick = plans.find((p) => p.name === plan);
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal" role="dialog" aria-label="Add VAS" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-h"><div><b>Add VAS</b><small>Complete the form to continue.</small></div><button className="lb-x sm" aria-label="Close" onClick={onClose}>×</button></div>
+        <div className="modal-b">
+          <div className="modal-card">
+            <h2>Add VAS</h2>
+            <p>Select a plan type and VAS plan for this order.</p>
+            <label className="tf"><span>Plan Type <i className="req">*</i></span>
+              <div className="tf-sel"><select value={type} onChange={(e) => { setType(e.target.value as keyof typeof VAS_CATALOG); setPlan(''); }}>
+                <option value="">Select plan type</option>
+                {Object.keys(VAS_CATALOG).map((k) => <option key={k}>{k}</option>)}
+              </select></div>
+            </label>
+            <label className="tf"><span>VAS Plan <i className="req">*</i></span>
+              <div className="tf-sel"><select value={plan} disabled={!type} onChange={(e) => setPlan(e.target.value)}>
+                <option value="">Select VAS plan</option>
+                {plans.map((p) => <option key={p.name} value={p.name} disabled={have.has(p.name)}>{p.name}{have.has(p.name) ? ' (already added)' : ''}</option>)}
+              </select></div>
+            </label>
+            {pick && <div className="dc-msg"><b>{money(pick.price)}</b> · {pick.details}</div>}
+            <span className="sp" />
+            <button className="btn primary wide" disabled={!pick} onClick={() => pick && type && onAdd(type, pick.name)}>Add VAS item</button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -166,6 +248,8 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   useEffect(() => { setCalc({ target: '', result: null }); }, [o.id]);
   const [sp, setSp] = useState<FormValues>(() => o.promiseChecklist || prefillChecklist(o.promises));
   const [spTried, setSpTried] = useState(false);
+  const [vasModal, setVasModal] = useState(false);
+  const [vasRow, setVasRow] = useState('');
   useEffect(() => { setSp(o.promiseChecklist || prefillChecklist(o.promises)); setSpTried(false); }, [o.id]);
   const [tiv, setTiv] = useState(String(o.tradeIn?.value || ''));
   const [pay, setPay] = useState({ amount: '', ref: '' });
@@ -316,7 +400,6 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   if (step === 'discount') {
     const v = Number(disc.value || 0);
     const amt = disc.type === 'Flat' ? v : Math.round((o.price * v) / 100);
-    const vasTotal = o.vas.reduce((x, y) => x + y.price, 0);
     const paid = o.payments.reduce((x, y) => x + y.amount, 0);
     const due = Math.max(0, orderTotal(o) - paid);
     const target = Number(calc.target);
@@ -342,16 +425,16 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
             <div className="dc-h">Enter the final outstanding amount you want, and LeadVerse back-calculates the discount.</div>
             <div className="dc-cols">
               <ul className="dc-list">
-                {li('DAP', o.price)}
+                {li('DAP', dap(o))}
                 {li('EGC', o.price)}
-                {li('Govt charges', 0)}
-                <ul className="dc-sub">{li('Motor vehicle duty', 0)}{li('3 months registration', 0)}{li('CTP insurance', 0)}{li('Transfer fee', 0)}</ul>
+                {li('Govt charges', govtCharges(o).total)}
+                <ul className="dc-sub">{li('Motor vehicle duty', govtCharges(o).duty)}{li('3 months registration', govtCharges(o).rego)}{li('CTP insurance', govtCharges(o).ctp)}{li('Transfer fee', govtCharges(o).transfer)}{li('Handling fee', govtCharges(o).handling)}</ul>
               </ul>
               <ul className="dc-list">
                 {li('Interstate charges', 0)}
                 {li('Home delivery charges', o.shipping)}
                 {li('Discount value', o.discount?.status === 'Applied' ? o.discount.amount : '—')}
-                {li('VAS', vasTotal)}
+                {li('VAS', vasTotal(o))}
                 {o.tradeIn && li('Trade-in', -o.tradeIn.value)}
                 {li('Total amount to be paid', orderTotal(o))}
                 {li('Total amount paid', paid)}
@@ -406,6 +489,42 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
         {o.discount && <div className={'statusline' + (o.discount.status === 'Awaiting approval' ? ' warn' : '')}>Discount {o.discount.type === 'Percent' ? o.discount.value + '% · ' : ''}{money(o.discount.amount)} · {o.discount.reason}{o.discount.till ? ` · valid till ${o.discount.till}` : ''} · <b>{o.discount.status}</b></div>}
         {!open && !o.discount && <div className="statusline">No discount on this order.</div>}
         <div className="hs" style={{ marginTop: 8 }}>b2c-admin · api/admin/getDiscount/&#123;orderId&#125;?finalDap · discount_value / discount_type</div>
+      </>
+    );
+  }
+
+  if (step === 'vas') {
+    if (!o.rmDone.vas) {
+      primary = { label: 'Confirm VAS with customer', run: () => act((x, at) => skipStep(x, 'vas', `VAS confirmed: ${x.vas.map((v) => v.name).join(', ')}`, at)) };
+      alts = [{ label: 'Add VAS', run: () => setVasModal(true) }];
+    }
+    fx = !o.rmDone.vas ? ['Add each VAS to the order (b2c-admin VAS Sales) and recalculate DAP and the outstanding amount', 'Regenerate the tax invoice', 'Create the VAS install task for VAS ops when the money gate clears (R-04)', 'Warranty, insurance and ILOE need no install task'] : [];
+    body = (
+      <>
+        <div className="vas-h"><div className="sec-h" style={{ margin: 0 }}>Value Added Services</div><button className="btn" onClick={() => setVasModal(true)}>Add VAS</button></div>
+        <div className="tbox">
+          <table className="tl-t">
+            <thead><tr><th>VAS Item</th><th>Total Amount</th><th>Status</th><th>Details</th><th aria-label="Actions" /></tr></thead>
+            <tbody>{o.vas.map((v) => (
+              <Fragment key={v.name}>
+                <tr>
+                  <td>{v.name}</td><td className="mono">{money(v.price)}</td><td>{v.status || 'ACTIVE'}</td><td className="vas-d">{v.details || '—'}</td>
+                  <td style={{ textAlign: 'right' }}><button className="vas-plus" aria-label={`More on ${v.name}`} aria-expanded={vasRow === v.name} onClick={() => setVasRow(vasRow === v.name ? '' : v.name)}>{vasRow === v.name ? '−' : '+'}</button></td>
+                </tr>
+                {vasRow === v.name && (
+                  <tr className="vas-x"><td colSpan={5}>
+                    <span>Plan type: <b>{v.type || '—'}</b>{task(o, 'vas', v.name) ? <> · Install task: <b>{stageDef(task(o, 'vas', v.name)!).label}</b></> : /warranty|insurance|iloe|service contract/i.test(v.name) ? ' · No install task needed' : ' · Install task created once the money gate clears'}</span>
+                    {v.base ? <small>Included with every car, can't be removed</small> : <button className="btn sm danger" onClick={() => { setVasRow(''); act((x, at) => removeVas(x, v.name, at)); }}>Remove VAS</button>}
+                  </td></tr>
+                )}
+              </Fragment>
+            ))}</tbody>
+          </table>
+        </div>
+        <DapBreakup o={o} />
+        <RegistrationDetails o={o} />
+        {o.rmDone.vas && <div className="statusline">VAS confirmed {fmtAge(Date.now() - o.rmDone.vas)} ago.</div>}
+        {vasModal && <AddVasModal o={o} onClose={() => setVasModal(false)} onAdd={(type, name) => { setVasModal(false); act((x, at) => addVas(x, VAS_CATALOG[type as keyof typeof VAS_CATALOG].find((p) => p.name === name)!, type, at)); }} />}
       </>
     );
   }

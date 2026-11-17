@@ -1,7 +1,7 @@
 // Invented demo orders. Each one is replayed through the engine from its deposit,
 // so tasks, timestamps and the activity feed are produced by the same rules the UI uses.
 import { JOURNEYS, type JourneyId } from './model';
-import { bookSlot, createOrder, HOUR, move, setBypass, task, type Order, type PaymentMode, type State } from './engine';
+import { bookSlot, createOrder, HOUR, move, setBypass, task, type Order, type PaymentMode, type State, type VasItem } from './engine';
 
 type Step =
   | [number, JourneyId, string, Record<string, string | boolean>?, string?]
@@ -9,16 +9,16 @@ type Step =
   | [number, 'bypass'];
 
 const HUBS: Record<State, string> = { VIC: 'Melbourne hub · Altona North', NSW: 'Sydney hub · Chullora', QLD: 'Brisbane hub · Eagle Farm' };
-const VAS = {
-  tint: { name: 'Ceramic tint', price: 499 },
-  ppf: { name: 'Exterior paint protection', price: 899 },
-  cam: { name: 'Dash cam (front + rear)', price: 399 },
-  ew: { name: 'Extended warranty · 3 yr', price: 1499 },
+const VAS: Record<string, VasItem> = {
+  tint: { name: 'Ceramic tint', price: 499, type: 'TINTING', status: 'ACTIVE', details: 'Duration Months: 0, Tinting Percentage: 30, Front windshield 6" tint: Yes, Calc Unique Code: 3M_T_00003' },
+  ppf: { name: 'Exterior paint protection', price: 899, type: 'COATING', status: 'ACTIVE', details: 'Duration Months: 60, Coverage: Full front, Calc Unique Code: PPF_F' },
+  cam: { name: 'Dash cam (front + rear)', price: 399, type: 'ACCESSORY', status: 'ACTIVE', details: 'Fitted at the hub, Calc Unique Code: ACC_DC_2CH' },
+  ew: { name: 'Extended warranty · 3 yr', price: 1499, type: 'WARRANTY', status: 'ACTIVE', details: 'Duration Months: 36, Calc Unique Code: EW_36' },
 };
 
 interface SeedDef {
   id: string; name: string; state: State; suburb: string; carState?: State; mode: PaymentMode; lender?: string;
-  car: [string, string, number, number, string]; price: number; deposit: number; vas?: (keyof typeof VAS)[];
+  car: [string, string, number, number, string]; price: number; deposit: number; vas?: ('tint' | 'ppf' | 'cam' | 'ew')[];
   promises?: string[]; tradeIn?: [string, number]; home?: boolean; pay?: 'Card' | 'Stripe'; depositH: number; steps: Step[];
 }
 
@@ -96,7 +96,7 @@ export function buildSeed(now: number): Order[] {
       lender: s.lender,
       price: s.price,
       depositPaid: s.deposit,
-      vas: (s.vas || []).map((k) => VAS[k]),
+      vas: (s.vas || []).map((k) => ({ ...VAS[k] })),
       promises: s.promises || [],
       tradeIn: s.tradeIn ? { car: s.tradeIn[0], value: s.tradeIn[1] } : undefined,
       deliveryMode: s.home ? 'Home delivery' : 'Pick up',

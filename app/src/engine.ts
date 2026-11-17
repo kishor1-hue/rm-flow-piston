@@ -24,6 +24,53 @@ export interface Activity {
   persona?: PersonaId;
 }
 
+export type PlanType = 'SERVICE_CONTRACT' | 'TINTING' | 'COATING' | 'WARRANTY' | 'INSURANCE' | 'ILOE' | 'ACCESSORY';
+export interface VasItem { name: string; price: number; type?: PlanType; status?: 'ACTIVE' | 'CANCELLED'; details?: string; base?: boolean }
+
+const tint = (code: string) => `Duration Months: 0, Tinting Percentage: 30, Front windshield 6" tint: Yes, Calc Unique Code: ${code}`;
+// Add VAS catalogue (plan type → plans), as in the B2C admin Add VAS form. Prices are placeholders.
+export const VAS_CATALOG: Record<Exclude<PlanType, 'ACCESSORY'>, VasItem[]> = {
+  SERVICE_CONTRACT: [
+    { name: 'Service Contract - 1 yr / 15,000 km', price: 690, details: 'Duration Months: 12, Services: 1, Calc Unique Code: SC_12_1' },
+    { name: 'Service Contract - 2 yr / 30,000 km', price: 1290, details: 'Duration Months: 24, Services: 2, Calc Unique Code: SC_24_2' },
+  ],
+  TINTING: [
+    { name: 'Tinting - 3M Color Stable', price: 449, details: tint('3M_T_00002') },
+    { name: 'Tinting - Global NR Quick Dry PLUS Films', price: 349, details: tint('GL_T_00004') },
+    { name: 'Tinting - 3M FX-ST', price: 399, details: tint('3M_T_00001') },
+    { name: 'Tinting - 3M Crystalline', price: 899, details: tint('3M_T_00003') },
+    { name: 'Tinting - Global Nano Ceramic IR Films', price: 599, details: tint('GL_T_00005') },
+    { name: 'Tinting - Global NR Quick Dry Films', price: 299, details: tint('GL_T_00003') },
+  ],
+  COATING: [
+    { name: 'Coating - Ceramic 3 yr', price: 990, details: 'Duration Months: 36, Calc Unique Code: CC_36' },
+    { name: 'Coating - Paint Protection Film (front)', price: 1490, details: 'Duration Months: 60, Coverage: Bonnet, bumper, mirrors, Calc Unique Code: PPF_F' },
+  ],
+  WARRANTY: [
+    { name: 'Extended Warranty - 1 yr', price: 699, details: 'Duration Months: 12, Calc Unique Code: EW_12' },
+    { name: 'Extended Warranty - 2 yr', price: 1099, details: 'Duration Months: 24, Calc Unique Code: EW_24' },
+    { name: 'Extended Warranty - 3 yr', price: 1499, details: 'Duration Months: 36, Calc Unique Code: EW_36' },
+  ],
+  INSURANCE: [
+    { name: 'Comprehensive Insurance - 12 months', price: 1250, details: 'Duration Months: 12, Excess: $800, Calc Unique Code: INS_C_12' },
+    { name: 'GAP Insurance - 36 months', price: 450, details: 'Duration Months: 36, Calc Unique Code: INS_GAP_36' },
+  ],
+  ILOE: [
+    { name: 'ILOE - Loan Protection 12 months', price: 299, details: 'Duration Months: 12, Cover: 3 repayments, Calc Unique Code: ILOE_12' },
+  ],
+};
+export const BASE_WARRANTY: VasItem = { name: 'Cars24 Base Warranty', price: 0, type: 'WARRANTY', status: 'ACTIVE', details: 'Duration Months: 3, Calc Unique Code: BASE_162_B', base: true };
+
+// Government charges for 3 months' registration (placeholder rates; duty ≈ 4.22% of the car price).
+export function govtCharges(o: Order) {
+  const duty = Math.round(o.price * 0.04223);
+  const c = { transfer: 46, duty, rego: 173, ctp: 147, handling: 599, months: 3, plates: 'STANDARD' };
+  return { ...c, total: c.transfer + c.duty + c.rego + c.ctp + c.handling };
+}
+export const vasTotal = (o: Order) => o.vas.filter((v) => v.status !== 'CANCELLED').reduce((a, v) => a + v.price, 0);
+// DAP (drive-away price) = EGC + government charges + delivery fees + VAS + accessories.
+export const dap = (o: Order) => o.price + govtCharges(o).total + o.shipping + vasTotal(o);
+
 export interface Order {
   id: string;
   apptId: string;
@@ -33,7 +80,7 @@ export interface Order {
   lender?: string;
   price: number;
   depositPaid: number;
-  vas: { name: string; price: number }[];
+  vas: VasItem[];
   promises: string[];
   tradeIn?: { car: string; value: number };
   deliveryMode: 'Pick up' | 'Home delivery';
@@ -45,7 +92,7 @@ export interface Order {
   payments: { type: string; amount: number; at: number; ref: string; by: string; method?: string }[];
   discount?: { type: 'Flat' | 'Percent'; value: number; amount: number; reason: string; status: 'Applied' | 'Awaiting approval'; till?: string };
   shipping: number; // deal shipping_charges (home delivery)
-  rmDone: Partial<Record<'promise' | 'discount' | 'tradein', number>>;
+  rmDone: Partial<Record<'promise' | 'discount' | 'tradein' | 'vas', number>>;
   promiseChecklist?: Record<string, string | string[]>; // submitted Sales Promise Refurbishment Checklist
   slot?: { date: string; time: string; by: string; override?: boolean };
   bypassContract: boolean;
@@ -124,7 +171,7 @@ export function hsDealStage(o: Order) {
 
 // ---------- events ----------
 export function createOrder(base: Omit<Order, 'tasks' | 'activity' | 'bypassContract' | 'payments' | 'rmDone' | 'shipping'> & { shipping?: number }): Order {
-  const o: Order = { ...base, shipping: base.shipping || 0, tasks: [], activity: [], bypassContract: false, payments: [], rmDone: {} };
+  const o: Order = { ...base, vas: [{ ...BASE_WARRANTY }, ...base.vas], shipping: base.shipping || 0, tasks: [], activity: [], bypassContract: false, payments: [], rmDone: {} };
   const at = o.depositAt;
   const bank = o.paymentMethod === 'Bank transfer';
   const ref = bank ? 'BT-' + o.id.replace(/\W/g, '') : (o.paymentMethod === 'Card' ? 'pi_' : 'cs_') + o.id.replace(/\W/g, '').toLowerCase() + '3xK';
@@ -158,7 +205,7 @@ function vasCheck(o: Order, at: number) {
   const financeGfd = isDone(task(o, 'payment'));
   const local = o.customer.state !== 'NSW' || !o.interstate || isDone(task(o, 'transit'));
   o.vas.forEach((v) => {
-    if (/warranty/i.test(v.name) || task(o, 'vas', v.name)) return;
+    if (v.status === 'CANCELLED' || /warranty|insurance|iloe|service contract/i.test(v.name) || task(o, 'vas', v.name)) return;
     const money = o.paymentMode === 'Cars24 finance' && !/dash ?cam/i.test(v.name) ? true : financeGfd;
     if (money && local) createTask(o, 'vas', at, 'R-04', v.name);
   });
@@ -244,7 +291,7 @@ export function fmtAge(ms: number) {
 }
 export const money = (n: number) => '$' + Math.round(n).toLocaleString('en-AU');
 export function orderTotal(o: Order) {
-  return o.price + o.vas.reduce((a, v) => a + v.price, 0) + o.shipping - (o.discount?.status === 'Applied' ? o.discount.amount : 0) - (o.tradeIn?.value || 0);
+  return dap(o) - (o.discount?.status === 'Applied' ? o.discount.amount : 0) - (o.tradeIn?.value || 0);
 }
 export function outstanding(o: Order) {
   const p = task(o, 'payment');
@@ -278,7 +325,19 @@ export function approveDiscount(o: Order, at: number) {
   o.discount.status = 'Applied';
   log(o, { at, who: 'Sales manager', kind: 'rule', rule: 'R-13', text: `Discount approved — outstanding now ${money(outstanding(o))}, tax invoice regenerated` });
 }
-export function skipStep(o: Order, step: 'promise' | 'discount' | 'tradein', text: string, at: number) {
+export function addVas(o: Order, item: VasItem, type: PlanType, at: number) {
+  o.vas.push({ ...item, type, status: 'ACTIVE' });
+  log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text: `VAS added: ${item.name} (${money(item.price)})` });
+  log(o, { at, who: 'Workflow', kind: 'rule', rule: 'R-04', text: `Outstanding recalculated to ${money(outstanding(o))}; tax invoice regenerated` });
+  vasCheck(o, at);
+}
+export function removeVas(o: Order, name: string, at: number) {
+  const v = o.vas.find((x) => x.name === name && !x.base);
+  if (!v) return;
+  o.vas = o.vas.filter((x) => x !== v);
+  log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text: `VAS removed: ${name}` });
+}
+export function skipStep(o: Order, step: 'promise' | 'discount' | 'tradein' | 'vas', text: string, at: number) {
   o.rmDone[step] = at;
   log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text });
 }
