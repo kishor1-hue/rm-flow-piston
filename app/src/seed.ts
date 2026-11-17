@@ -25,6 +25,7 @@ interface SeedDef {
 const SEEDS: SeedDef[] = [
   { id: 'LV-7Q2K', name: 'Ava Thompson', state: 'VIC', suburb: 'Footscray', mode: 'Cash', car: ['Mazda', 'CX-5 Maxx Sport', 2021, 48210, 'Soul Red'], price: 32990, deposit: 1000, vas: ['tint'], depositH: 0.4, promises: ['$300 off agreed on the lot', 'New floor mats'], steps: [] },
   { id: 'LV-3M9D', name: 'Daniel Nguyen', state: 'NSW', suburb: 'Parramatta', mode: 'Cash', car: ['Toyota', 'Corolla Ascent Sport', 2020, 61200, 'Silver'], price: 22490, deposit: 1000, pay: 'Card', tradeIn: ['2015 Hyundai i30', 6000], depositH: 2.3, steps: [] },
+  { id: 'LV-4ST9', name: 'Sophie Clarke', state: 'VIC', suburb: 'Brunswick', mode: 'Cash', pay: 'Card', car: ['Hyundai', 'i30 Active', 2021, 41800, 'Fluid Metal'], price: 23990, deposit: 1000, vas: ['ppf'], promises: ['Second key'], depositH: 0.8, steps: [] },
   {
     id: 'LV-8RT1', name: 'Chloe Martin', state: 'QLD', suburb: 'Chermside', mode: 'BYO', lender: 'Latitude', car: ['Hyundai', 'Tucson Elite', 2022, 33900, 'White'], price: 36990, deposit: 1000, depositH: 26,
     steps: [[24, 'contract', 'recall'], [20, 'payment', 'instalment'], [6, 'rwc', 'wip']],

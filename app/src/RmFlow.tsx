@@ -73,6 +73,40 @@ function TicketStatus({ o, t, title, onMove }: { o: Order; t: Task; title: strin
   );
 }
 
+const methodLabel = (m?: string) => (m === 'Card' ? 'Card (Stripe)' : m === 'Stripe' ? 'Stripe payment link' : m || 'Bank transfer');
+
+// Price breakdown: what the customer owes, what has landed, what is still pending.
+function PriceBreakdown({ o }: { o: Order }) {
+  const paid = o.payments.reduce((a, x) => a + x.amount, 0);
+  const due = outstanding(o);
+  const r = (label: string, amt: number, opts: { neg?: boolean; note?: string; cls?: string } = {}) => (
+    <tr key={label} className={opts.cls}>
+      <td>{label}{opts.note && <small className="pb-note">{opts.note}</small>}</td>
+      <td style={{ textAlign: 'right' }}>{opts.neg && amt ? '− ' : ''}{money(amt)}</td>
+    </tr>
+  );
+  return (
+    <>
+      <div className="sec-h">Price breakdown</div>
+      <div className="tbox">
+        <table className="tl-t pb">
+          <thead><tr><th>Item</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
+          <tbody>
+            {r(`${o.car.year} ${o.car.make} ${o.car.model}`, o.price, { note: 'Car price' })}
+            {o.vas.map((v) => r(v.name, v.price, { note: 'Add-on' }))}
+            {o.shipping > 0 && r('Shipping', o.shipping, { note: 'Home delivery' })}
+            {o.discount && r('Discount', o.discount.status === 'Applied' ? o.discount.amount : 0, { neg: true, note: o.discount.status === 'Applied' ? o.discount.reason : `${money(o.discount.amount)} awaiting approval` })}
+            {o.tradeIn && r('Trade-in', o.tradeIn.value, { neg: true, note: o.tradeIn.car })}
+            {r('Total payable', orderTotal(o), { cls: 'pb-sum' })}
+            {o.payments.map((x) => r(x.type === 'DEPOSIT' ? 'Deposit paid' : x.type === 'FIRST_INSTALMENT' ? 'First instalment paid' : 'Balance paid', x.amount, { neg: true, note: methodLabel(x.method) }))}
+            {r('Pending balance', due, { cls: 'pb-due' + (due ? '' : ' paid'), note: due ? `${Math.round((paid / orderTotal(o)) * 100)}% paid so far` : 'Fully paid' })}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
 function StageFields({ t, onField }: { t: Task; onField: (k: string, v: string | boolean) => void }) {
   const s = stageDef(t);
   if (!s.fields?.length || s.kind === 'done') return null;
@@ -162,7 +196,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
                 const verify = pending && x.type === 'DEPOSIT' && bank;
                 return (
                   <tr key={x.ref + x.at}>
-                    <td>{x.type}</td><td>{x.method || 'Bank transfer'}</td><td className="mono">{x.ref}</td><td>{fmtAge(Date.now() - x.at)} ago</td>
+                    <td>{x.type}</td><td>{methodLabel(x.method)}</td><td className="mono">{x.ref}</td><td>{fmtAge(Date.now() - x.at)} ago</td>
                     <td style={{ textAlign: 'right' }}>{money(x.amount)}</td>
                     <td><span className={'code ' + (verify ? 'c-amber' : 'c-green')}>{verify ? 'TO_VERIFY' : 'SUCCESS'}</span></td>
                   </tr>
@@ -171,6 +205,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
             </tbody>
           </table>
         </div>
+        <PriceBreakdown o={o} />
         {bank ? (
           <>
             <div className="sec-h">Payment proof <span className="hs">proof_of_payment_link</span></div>
@@ -187,7 +222,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
             {!pending && <div className="statusline">Proof verified. First instalment confirmed and car prep has started (GFR).</div>}
           </>
         ) : (
-          <div className="statusline">Paid by {o.paymentMethod.toLowerCase()} through Stripe. The ticket moved to First Instalment Paid on its own, so there is nothing to verify.</div>
+          <div className="statusline">Paid by {methodLabel(o.paymentMethod)}. Stripe confirmed it and moved the ticket to First Instalment Paid on its own. Nothing to verify.</div>
         )}
       </>
     );
