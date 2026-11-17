@@ -9,14 +9,14 @@ import {
 import { Field } from './TaskCard';
 import { proofPng } from './proof';
 
-export type RmStep = 'deposit' | 'docs' | 'promise' | 'discount' | 'tradein' | 'balance' | 'delivery';
+export type RmStep = 'deposit' | 'discount' | 'docs' | 'promise' | 'tradein' | 'balance' | 'delivery';
 type Act = (fn: (o: Order, at: number) => void) => void;
 
 const STEPS: { key: RmStep; label: string; where: string }[] = [
   { key: 'deposit', label: 'Verify deposit', where: 'Finance ticket · HubSpot 01a' },
+  { key: 'discount', label: 'Discount', where: 'B2C admin · Discount codes' },
   { key: 'docs', label: 'Customer documents', where: 'Customer documents ticket · HubSpot 02' },
   { key: 'promise', label: 'Sales promise', where: 'Deal property sales_promise_' },
-  { key: 'discount', label: 'Discount', where: 'B2C admin · Discount codes' },
   { key: 'tradein', label: 'Trade-in', where: 'B2C admin · Add trade-in' },
   { key: 'balance', label: 'Balance payment', where: 'Finance ticket · HubSpot 01a' },
   { key: 'delivery', label: 'Book delivery', where: 'B2C admin · Book delivery slots' },
@@ -139,10 +139,9 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   const [time, setTime] = useState('11:00 am');
   const promisedOff = Number((o.promises.join(' ').match(/\$(\d+)\s*off/i) || [])[1] || 0);
   const [disc, setDisc] = useState({ type: 'Flat' as 'Flat' | 'Percent', value: String(promisedOff || ''), reason: promisedOff ? 'Car Discount' : '', till: '' });
-  // Discount is two screens, like the B2C admin: back-calculate from a target outstanding, then generate the discount.
+  // Discount page has two sections, like the B2C admin: back-calculate from a target outstanding, then generate the discount.
   const [calc, setCalc] = useState<{ target: string; result: number | null }>({ target: '', result: null });
-  const [dsub, setDsub] = useState<'calc' | 'form'>('calc');
-  useEffect(() => { setCalc({ target: '', result: null }); setDsub('calc'); }, [o.id]);
+  useEffect(() => { setCalc({ target: '', result: null }); }, [o.id]);
   const [tiv, setTiv] = useState(String(o.tradeIn?.value || ''));
   const [pay, setPay] = useState({ amount: '', ref: '' });
   useEffect(() => { setMenu(false); }, [step, o.id]);
@@ -282,40 +281,24 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     const due = Math.max(0, orderTotal(o) - paid);
     const target = Number(calc.target);
     const calcErr = calc.target === '' ? 'Enter the required outstanding amount' : target < 0 ? 'Must be 0 or more' : target >= due ? `Must be below the current outstanding ${money(due)}` : '';
-    const runCalc = () => { if (!calcErr) setCalc({ ...calc, result: due - target }); };
-    const useResult = () => { setDisc({ ...disc, type: 'Flat', value: String(calc.result) }); setDsub('form'); };
+    // Calculating fills the Generate discount section below with the result.
+    const runCalc = () => { if (calcErr) return; setCalc({ ...calc, result: due - target }); setDisc({ ...disc, type: 'Flat', value: String(due - target) }); };
     const open = !o.rmDone.discount;
     if (o.discount?.status === 'Awaiting approval') {
       primary = { label: 'Approve discount (demo: sales manager)', run: () => act((x, at) => approveDiscount(x, at)) };
-    } else if (open && dsub === 'calc') {
-      primary = calc.result != null
-        ? { label: `Use ${money(calc.result)} discount`, run: useResult }
-        : { label: 'Calculate discount', run: runCalc, block: calcErr };
-      alts = [
-        { label: 'Skip calculator, enter discount directly', run: () => setDsub('form') },
-        { label: 'No discount on this order', run: () => act((x, at) => skipStep(x, 'discount', 'No discount on this order', at)) },
-      ];
     } else if (open) {
       primary = { label: `Generate ${amt ? money(amt) + ' ' : ''}discount`, run: () => act((x, at) => applyDiscount(x, disc.type, v, disc.reason, at, disc.till || undefined)), block: !v ? 'Enter a discount value' : !disc.reason ? 'Select a discount description' : disc.type === 'Percent' && v > 100 ? 'Percentage must be 100 or less' : '' };
       alts = [
-        { label: 'Back to calculator', run: () => setDsub('calc') },
         { label: 'No discount on this order', run: () => act((x, at) => skipStep(x, 'discount', 'No discount on this order', at)) },
       ];
     }
-    fx = open && dsub === 'form' ? ['Recalculate the outstanding amount', 'Regenerate the tax invoice', `Above ${money(DISCOUNT_LIMIT)}: send to the sales manager for approval first`, 'Sync discount_value to the order record'] : [];
+    fx = open ? ['Recalculate the outstanding amount', 'Regenerate the tax invoice', `Above ${money(DISCOUNT_LIMIT)}: send to the sales manager for approval first`, 'Sync discount_value to the order record'] : [];
     const li = (k: string, val: number | string) => <li key={k}><span>{k}</span><b>{typeof val === 'number' ? money(val) : val}</b></li>;
     body = (
       <>
         {open && (
-          <div className="dsteps">
-            <button className={dsub === 'calc' ? 'on' : 'done'} onClick={() => setDsub('calc')}><i>{dsub === 'calc' ? '1' : '✓'}</i>Discount calculator</button>
-            <span className="dsep" />
-            <button className={dsub === 'form' ? 'on' : ''} onClick={() => setDsub('form')}><i>2</i>Generate discount</button>
-          </div>
-        )}
-
-        {open && dsub === 'calc' && (
           <div className="dcalc">
+            <div className="dc-title"><i>1</i>Discount calculator</div>
             <div className="dc-h">Enter the final outstanding amount you want, and LeadVerse back-calculates the discount.</div>
             <div className="dc-cols">
               <ul className="dc-list">
@@ -345,15 +328,16 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
             {calc.target !== '' && calcErr && <div className="dc-err">{calcErr}</div>}
             {calc.result != null && (
               <>
-                <div className="dc-msg">The current total due is <b>{money(due)}</b>. To bring it to <b>{money(target)}</b>, a discount of <b>{money(calc.result)}</b> is needed.</div>
+                <div className="dc-msg">The current total due is <b>{money(due)}</b>. To bring it to <b>{money(target)}</b>, a discount of <b>{money(calc.result)}</b> is needed. It has been filled in below.</div>
                 <label className="tf" style={{ maxWidth: 260 }}><span>Required discount</span><div className="tf-ro">{money(calc.result)}</div></label>
               </>
             )}
           </div>
         )}
 
-        {open && dsub === 'form' && (
-          <div className="tform">
+        {open && <div className="dc-title sec"><i>2</i>Generate discount</div>}
+        {open && (
+          <div className="tform" style={{ marginTop: 8 }}>
             <label className="tf">
               <span>Discount type <i className="req">*</i></span>
               <div className="tf-sel"><select value={disc.type} onChange={(e) => setDisc({ ...disc, type: e.target.value as 'Flat' | 'Percent' })}><option value="Flat">Flat</option><option value="Percent">Percentage</option></select></div>

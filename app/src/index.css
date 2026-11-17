@@ -509,3 +509,7 @@ td.empty { cursor: default; }
 .tf-help.warn { color: var(--amber-ink); }
 .dc-after .tf-ro { color: var(--ink-2); }
 @media (max-width: 860px) { .dc-cols { grid-template-columns: 1fr; } .dc-cols > ul + ul { border-left: 0; border-top: 1px solid var(--line); } }
+.dc-title { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; }
+.dc-title i { font-style: normal; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; background: var(--lv); color: #fff; }
+.dc-title.sec { margin-top: 18px; }
+.dcalc .dc-h { font-weight: 500; color: var(--ink-2); font-size: 13px; margin-top: -6px; }
