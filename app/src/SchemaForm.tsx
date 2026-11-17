@@ -71,12 +71,16 @@ function FieldInput({ f, value, onChange, error }: { f: SchemaField; value?: For
     // Prototype: the presigned PUT is simulated; we keep the file name as the uploaded document.
     const name = value as string | undefined;
     return (
-      <div className="sf-file">
-        <label className="btn sm">
-          {name ? 'Replace file' : f.placeholder || 'Upload file'}
+      <div className={'sf-up' + (name ? ' done' : '')}>
+        <div className="sf-up-t">
+          <div><b>{f.label}</b><span className={'sf-badge' + (name ? ' ok' : '')}>{name ? 'Uploaded' : 'Pending'}</span></div>
+          <small>{name ? name : f.helperText}</small>
+        </div>
+        <label className="sf-up-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 15V4M7 9l5-5 5 5M5 15v4a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-4" /></svg>
+          {name ? 'Replace' : 'Upload'}
           <input type="file" accept="image/*,application/pdf" hidden onChange={(e) => { const fl = e.target.files?.[0]; if (fl) onChange(fl.name); }} />
         </label>
-        {name ? <span className="sf-fname">✓ {name}</span> : <small>{f.helperText}</small>}
       </div>
     );
   }
@@ -87,33 +91,25 @@ export function SchemaForm({ page, values, onChange, showErrors }: { page: Schem
   const byId = new Map(page.fields.map((f) => [f.id, f]));
   const errs = showErrors ? validate(page, values) : {};
   const ordered = page.blocks.map((b) => byId.get(b.fieldId)!).filter(Boolean);
-  // Group each checkbox category with its own remark / upload fields into one card.
+  // Group each checkbox category with its own remark / upload fields.
   const groups: SchemaField[][] = [];
   for (const f of ordered) {
     const last = groups[groups.length - 1];
     if (last && last[0].type === 'checkbox' && f.id.startsWith(last[0].id + '_')) last.push(f);
     else groups.push([f]);
   }
-  const field = (f: SchemaField, inCard: boolean) => !isVisible(f, values) ? null : (
-    <div key={f.id} className={'sf-field' + (inCard ? '' : ' top')}>
-      {!(inCard && f.type === 'checkbox') && <label className="sf-label">{f.label}{isRequired(f, values) && <i className="req"> *</i>}</label>}
+  const field = (f: SchemaField) => !isVisible(f, values) ? null : (
+    <div key={f.id} className="sf-field">
+      {f.type !== 'file_upload' && <label className="sf-label">{f.label}{isRequired(f, values) && <i className="req"> *</i>}</label>}
       <FieldInput f={f} value={values[f.id]} onChange={(v) => onChange(f.id, v)} error={errs[f.id]} />
       {errs[f.id] && <div className="dc-err">{errs[f.id]}</div>}
     </div>
   );
   return (
     <div className="sf">
-      {groups.map((g) => {
-        if (g[0].type !== 'checkbox') return g.map((f) => field(f, false));
-        if (!isVisible(g[0], values)) return null;
-        const n = ((values[g[0].id] as string[]) || []).length;
-        return (
-          <div key={g[0].id} className={'sf-card' + (n ? ' has' : '')}>
-            <div className="sf-card-h"><b>{g[0].label}</b>{n > 0 && <span className="chip c-lv">{n} selected</span>}</div>
-            {g.map((f) => field(f, true))}
-          </div>
-        );
-      })}
+      {groups.map((g) => g[0].type !== 'checkbox' ? g.map(field) : !isVisible(g[0], values) ? null : (
+        <div key={g[0].id} className="sf-group">{g.map(field)}</div>
+      ))}
     </div>
   );
 }

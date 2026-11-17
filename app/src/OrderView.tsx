@@ -70,6 +70,13 @@ function LeftPanel({ o, now, persona, onDemo, onComms, collapsed, toggle }: {
                 {tab === 'contact' && <div className="summary-box"><b>✦ Summary</b><p>{aiSummary(o, now)}</p></div>}
                 <div className="lp-title">{({ contact: 'Contact', order: 'Order', car: 'Car', pricing: 'Pricing' } as Record<string, string>)[tab]}</div>
                 {boxes(groups[tab])}
+                {tab === 'contact' && (
+                  <>
+                    <div className="lp-title" style={{ marginTop: 18 }}>Sales promise</div>
+                    {boxes([['Sales promise?', o.promises.length ? 'Yes' : 'No'], ['Promised by the ground team', o.promises.length ? o.promises.join(' · ') : '—']])}
+                    <div className="hs" style={{ marginTop: 4 }}>sales_promise_ · notes_to_add_sales_promise</div>
+                  </>
+                )}
               </>
             )}
             {tab === 'teams' && (

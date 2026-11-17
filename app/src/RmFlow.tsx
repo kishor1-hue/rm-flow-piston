@@ -292,11 +292,6 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     const done = o.promiseChecklist;
     body = (
       <>
-        <div className="kvbox" style={{ marginTop: 14 }}>
-          <div><span>Sales promise?</span><b>{o.promises.length ? 'Yes' : 'No'}</b></div>
-          <div><span>Promised by the ground team</span><b>{o.promises.length ? o.promises.join(' · ') : '—'}</b></div>
-        </div>
-        <div className="hs" style={{ marginTop: 6 }}>sales_promise_ · notes_to_add_sales_promise · formatted_sales_promise</div>
         <div className="sec-h">{SP_PAGE.title}</div>
         {!done ? (
           <>
