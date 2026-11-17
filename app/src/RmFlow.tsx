@@ -53,20 +53,20 @@ function TicketStatus({ o, t, title, onMove }: { o: Order; t: Task; title: strin
     return canMove(o, t, n.to).reason || '';
   };
   return (
-    <div className="ticketbar">
-      <div>
-        <div className="tb-k">{title}</div>
-        <div className="tb-s">{def.hsPipeline} · in stage {fmtAge(Date.now() - t.enteredAt)}</div>
-      </div>
-      <label className="tb-sel">
+    <div className="tform">
+      <label className="tf"><span>Ticket</span><div className="tf-ro">{title}</div></label>
+      <label className="tf"><span>Pipeline</span><div className="tf-ro">{def.hsPipeline}<small>in stage {fmtAge(Date.now() - t.enteredAt)}</small></div></label>
+      <label className="tf wide">
         <span>Ticket status</span>
-        <select value={t.stage} onChange={(e) => { const n = nexts.find((x) => x.to === e.target.value); if (n && !reason(n)) onMove(n.to); }}>
-          {def.stages.map((s) => {
-            const n = nexts.find((x) => x.to === s.key);
-            const r = s.key === t.stage ? '' : reason(n);
-            return <option key={s.key} value={s.key} disabled={!!r}>{s.hs}{r && s.key !== t.stage ? ` — ${r}` : ''}</option>;
-          })}
-        </select>
+        <div className="tf-sel">
+          <select value={t.stage} onChange={(e) => { const n = nexts.find((x) => x.to === e.target.value); if (n && !reason(n)) onMove(n.to); }}>
+            {def.stages.map((s) => {
+              const n = nexts.find((x) => x.to === s.key);
+              const r = s.key === t.stage ? '' : reason(n);
+              return <option key={s.key} value={s.key} disabled={!!r}>{s.hs}{r && s.key !== t.stage ? ` — ${r}` : ''}</option>;
+            })}
+          </select>
+        </div>
       </label>
     </div>
   );
@@ -104,11 +104,12 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   const [pay, setPay] = useState({ amount: '', ref: '' });
   useEffect(() => { setMenu(false); }, [step, o.id]);
   // Finishing a step moves the RM on to the next open one.
-  const wasDone = useRef(stepDone(o, step));
+  const wasDone = useRef({ key: o.id + step, done: stepDone(o, step) });
   useEffect(() => {
     const d = stepDone(o, step);
-    if (d && !wasDone.current) { const n = STEPS.slice(STEPS.findIndex((s) => s.key === step) + 1).find((s) => !stepDone(o, s.key)); if (n) setStep(n.key); }
-    wasDone.current = d;
+    const same = wasDone.current.key === o.id + step;
+    if (same && d && !wasDone.current.done) { const n = STEPS.slice(STEPS.findIndex((s) => s.key === step) + 1).find((s) => !stepDone(o, s.key)); if (n) setStep(n.key); }
+    wasDone.current = { key: o.id + step, done: d };
   });
   useEffect(() => { setPay({ amount: String(outstanding(o) || ''), ref: '' }); }, [o.id, step, o.payments.length, o.discount?.status, o.tradeIn?.value]);
 
@@ -145,27 +146,43 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     fx = p.stage === 'deposit'
       ? ['Finance ticket → First Instalment Paid', 'Stamp GFR date on the order (HubSpot DW01b)', o.interstate ? 'Create the interstate inspection task for Delivery (DW02)' : 'Create the RWC / refurb task for the Refurb team (DW02)', 'Order moves to Car prep (HubSpot deal 4: Awaiting RWC)', 'Sync GFR to OMS']
       : [];
+    const bank = o.paymentMethod === 'Bank transfer';
+    const pending = p.stage === 'deposit';
     body = (
       <>
         <TicketStatus o={o} t={p} title={`${o.id}-${first} (Finance Ticket)`} onMove={(to) => moveTask(p, to)} />
-        <div className="proof">
-          <div className="proof-img" aria-hidden>
-            <div className="pi-bank">Bank transfer receipt</div>
-            <div className="pi-amt">{money(o.depositPaid)}</div>
-            <div className="pi-ref">To CARS24 AUS · ref {o.id}</div>
-          </div>
-          <div className="proof-meta">
-            <div className="kvbox">
-              <div><span>Payment method</span><b>{o.paymentMethod}</b></div>
-              <div><span>Deposit amount</span><b>{money(o.depositPaid)}</b></div>
-              <div><span>Paid</span><b>{fmtAge(Date.now() - o.depositAt)} ago</b></div>
-              <div><span>Payment proof</span><b className="mono">{o.proofUrl || 'Card — no proof needed'}</b></div>
-            </div>
-            <div className="hs" style={{ marginTop: 6 }}>proof_of_payment_link</div>
-          </div>
+        <div className="sec-h">Payments</div>
+        <div className="tbox">
+          <table className="tl-t">
+            <thead><tr><th>Type</th><th>Method</th><th>Transaction ID</th><th>Paid</th><th style={{ textAlign: 'right' }}>Amount</th><th>Status</th></tr></thead>
+            <tbody>
+              {o.payments.map((x) => {
+                const verify = pending && x.type === 'DEPOSIT' && bank;
+                return (
+                  <tr key={x.ref + x.at}>
+                    <td>{x.type}</td><td>{x.method || 'Bank transfer'}</td><td className="mono">{x.ref}</td><td>{fmtAge(Date.now() - x.at)} ago</td>
+                    <td style={{ textAlign: 'right' }}>{money(x.amount)}</td>
+                    <td><span className={'code ' + (verify ? 'c-amber' : 'c-green')}>{verify ? 'TO_VERIFY' : 'SUCCESS'}</span></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
-        {p.stage === 'deposit' && <StageFields t={p} onField={(k, v) => onField(p.id, k, v)} />}
-        {p.stage !== 'deposit' && <div className="statusline">First instalment confirmed. Car prep has started (GFR). The balance is chased in step 6.</div>}
+        {bank ? (
+          <>
+            <div className="sec-h">Payment proof <span className="hs">proof_of_payment_link</span></div>
+            <div className="proof-img">
+              <div className="pi-bank">Bank transfer receipt</div>
+              <div className="pi-amt">{money(o.depositPaid)}</div>
+              <div className="pi-ref">To CARS24 AUS · ref {o.id}</div>
+              <div className="pi-file mono">{o.proofUrl}</div>
+            </div>
+            {!pending && <div className="statusline">Proof verified. First instalment confirmed and car prep has started (GFR).</div>}
+          </>
+        ) : (
+          <div className="statusline">Paid by {o.paymentMethod.toLowerCase()} through Stripe. The ticket moved to First Instalment Paid on its own, so there is nothing to verify.</div>
+        )}
       </>
     );
   }

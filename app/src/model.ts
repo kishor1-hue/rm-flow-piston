@@ -151,11 +151,10 @@ export const JOURNEYS: Record<JourneyId, JourneyDef> = {
     stages: [
       {
         key: 'deposit', label: 'Deposit remittance received', hs: 'Deposit remittance advice received (Bank Transfer)', slaHours: 48, slaText: 'Bank transfers take 24–48h to land',
-        guide: 'Open the payment proof the customer uploaded and match it against the bank statement. Only then confirm the first instalment.',
+        guide: 'Bank transfer only: open the payment proof the customer uploaded, match it to the bank statement, then confirm the first instalment. Card and Stripe deposits skip this stage.',
         auto: 'Created by 01_START at booking (bank transfer / proof of payment link)',
-        fields: [f('proofChecked', 'Payment proof matches the bank statement', 'check', { hs: 'NEW' })],
         next: [
-          { label: 'Confirm first instalment paid', to: 'instalment', tone: 'primary', requires: ['proofChecked'] },
+          { label: 'Confirm first instalment paid', to: 'instalment', tone: 'primary' },
           { label: 'Payment not received — cancel sale', to: 'cancelled', tone: 'danger' },
         ],
       },

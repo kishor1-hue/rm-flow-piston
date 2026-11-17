@@ -40,9 +40,9 @@ export interface Order {
   interstate: boolean;
   depositAt: number;
   gfrAt?: number; // HubSpot deal gfr_date
-  paymentMethod: 'Bank transfer' | 'Card';
+  paymentMethod: 'Bank transfer' | 'Card' | 'Stripe';
   proofUrl?: string; // deal proof_of_payment_link
-  payments: { type: string; amount: number; at: number; ref: string; by: string }[];
+  payments: { type: string; amount: number; at: number; ref: string; by: string; method?: string }[];
   discount?: { type: 'Flat' | 'Percent'; value: number; amount: number; reason: string; status: 'Applied' | 'Awaiting approval' };
   shipping: number; // deal shipping_charges (home delivery)
   rmDone: Partial<Record<'promise' | 'discount' | 'tradein', number>>;
@@ -125,10 +125,14 @@ export function hsDealStage(o: Order) {
 export function createOrder(base: Omit<Order, 'tasks' | 'activity' | 'bypassContract' | 'payments' | 'rmDone' | 'shipping'> & { shipping?: number }): Order {
   const o: Order = { ...base, shipping: base.shipping || 0, tasks: [], activity: [], bypassContract: false, payments: [], rmDone: {} };
   const at = o.depositAt;
-  o.payments.push({ type: 'DEPOSIT', amount: o.depositPaid, at, ref: o.paymentMethod === 'Bank transfer' ? 'Bank transfer · proof uploaded' : 'Stripe card', by: 'Customer' });
+  const bank = o.paymentMethod === 'Bank transfer';
+  const ref = bank ? 'BT-' + o.id.replace(/\W/g, '') : (o.paymentMethod === 'Card' ? 'pi_' : 'cs_') + o.id.replace(/\W/g, '').toLowerCase() + '3xK';
+  o.payments.push({ type: 'DEPOSIT', amount: o.depositPaid, at, ref, by: 'Customer', method: o.paymentMethod });
   log(o, { at, who: 'Customer', kind: 'stage', text: `Deposit $${o.depositPaid.toLocaleString()} paid (${o.paymentMethod}) · order ${o.id} created` });
   createTask(o, 'payment', at, 'R-01');
   createTask(o, 'contract', at, 'R-01');
+  // Card and Stripe deposits are confirmed by the Stripe webhook: no proof to check, ticket moves on its own.
+  if (!bank) move(o, task(o, 'payment')!, 'instalment', 'system', at);
   log(o, { at, who: 'Workflow', kind: 'comms', text: 'Automated email: "Your car is reserved" sent to customer' });
   return o;
 }

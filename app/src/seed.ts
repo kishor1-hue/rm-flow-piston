@@ -19,12 +19,12 @@ const VAS = {
 interface SeedDef {
   id: string; name: string; state: State; suburb: string; carState?: State; mode: PaymentMode; lender?: string;
   car: [string, string, number, number, string]; price: number; deposit: number; vas?: (keyof typeof VAS)[];
-  promises?: string[]; tradeIn?: [string, number]; home?: boolean; depositH: number; steps: Step[];
+  promises?: string[]; tradeIn?: [string, number]; home?: boolean; pay?: 'Card' | 'Stripe'; depositH: number; steps: Step[];
 }
 
 const SEEDS: SeedDef[] = [
   { id: 'LV-7Q2K', name: 'Ava Thompson', state: 'VIC', suburb: 'Footscray', mode: 'Cash', car: ['Mazda', 'CX-5 Maxx Sport', 2021, 48210, 'Soul Red'], price: 32990, deposit: 1000, vas: ['tint'], depositH: 0.4, promises: ['$300 off agreed on the lot', 'New floor mats'], steps: [] },
-  { id: 'LV-3M9D', name: 'Daniel Nguyen', state: 'NSW', suburb: 'Parramatta', mode: 'Cash', car: ['Toyota', 'Corolla Ascent Sport', 2020, 61200, 'Silver'], price: 22490, deposit: 1000, tradeIn: ['2015 Hyundai i30', 6000], depositH: 2.3, steps: [] },
+  { id: 'LV-3M9D', name: 'Daniel Nguyen', state: 'NSW', suburb: 'Parramatta', mode: 'Cash', car: ['Toyota', 'Corolla Ascent Sport', 2020, 61200, 'Silver'], price: 22490, deposit: 1000, pay: 'Card', tradeIn: ['2015 Hyundai i30', 6000], depositH: 2.3, steps: [] },
   {
     id: 'LV-8RT1', name: 'Chloe Martin', state: 'QLD', suburb: 'Chermside', mode: 'BYO', lender: 'Latitude', car: ['Hyundai', 'Tucson Elite', 2022, 33900, 'White'], price: 36990, deposit: 1000, depositH: 26,
     steps: [[24, 'contract', 'recall'], [20, 'payment', 'instalment'], [6, 'rwc', 'wip']],
@@ -70,7 +70,7 @@ const SEEDS: SeedDef[] = [
     steps: [[87, 'contract', 'recall', { recallStatus: 'No active recall' }], [86, 'contract', 'sent'], [60, 'contract', 'form4'], [80, 'payment', 'instalment'], [79, 'rwc', 'wip'], [78, 'rwc', 'complete', { rwcNumber: 'RW-2219102', rwcConfirm: true, rwcExpiry: '2027-11-12' }], [60, 'rego', 'vic'], [30, 'rego', 'complete', { regoNumber: '2AB 7QW', regoExpiry: '2027-11-14' }], [10, 'refurb', 'qc', { promiseDone: true, detailConfirm: true, workLog: 'Door touch-up, detail' }]],
   },
   {
-    id: 'LV-8LM4', name: 'Ruby Scott', state: 'NSW', suburb: 'Bondi', mode: 'Cash', car: ['Volkswagen', 'Golf 110TSI', 2019, 64300, 'White'], price: 24990, deposit: 1000, depositH: 34,
+    id: 'LV-8LM4', name: 'Ruby Scott', state: 'NSW', suburb: 'Bondi', mode: 'Cash', car: ['Volkswagen', 'Golf 110TSI', 2019, 64300, 'White'], price: 24990, deposit: 1000, pay: 'Stripe', depositH: 34,
     steps: [[31, 'contract', 'recall']],
   },
   {
@@ -90,8 +90,8 @@ export function buildSeed(now: number): Order[] {
       customer: { name: s.name, phone: phone(i), email: s.name.toLowerCase().replace(/[^a-z]+/g, '.') + '@example.com', state: s.state, suburb: s.suburb },
       car: { make: s.car[0], model: s.car[1], year: s.car[2], km: s.car[3], colour: s.car[4], vin: 'JM0' + (s.id.replace(/\W/g, '') + 'X8812345').slice(0, 14).toUpperCase(), hub: HUBS[carState], hubState: carState },
       paymentMode: s.mode,
-      paymentMethod: s.mode === 'Cash' ? 'Bank transfer' : 'Card',
-      proofUrl: s.mode === 'Cash' ? `payment-proof/${s.id}-bank-transfer.png` : undefined,
+      paymentMethod: s.pay || (s.mode === 'Cash' ? 'Bank transfer' : 'Card'),
+      proofUrl: !s.pay && s.mode === 'Cash' ? `payment-proof/${s.id}-bank-transfer.png` : undefined,
       lender: s.lender,
       price: s.price,
       depositPaid: s.deposit,
@@ -111,6 +111,7 @@ export function buildSeed(now: number): Order[] {
       const [, j, to, fields, item] = st as [number, JourneyId, string, Record<string, string | boolean>?, string?];
       const t = task(o, j, item);
       if (!t) continue;
+      if (j === 'payment' && to === 'instalment' && t.stage !== 'deposit') continue; // card / Stripe already auto-confirmed
       Object.assign(t.fields, fields || {});
       move(o, t, to, JOURNEYS[j].persona, at);
     }
