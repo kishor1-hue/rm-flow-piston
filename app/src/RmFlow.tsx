@@ -73,6 +73,9 @@ function TicketStatus({ o, t, title, onMove }: { o: Order; t: Task; title: strin
   );
 }
 
+// Discount Description options in the B2C admin Discount codes form.
+const DISCOUNT_DESCRIPTIONS = ['EW', 'VAS Sales', 'Car Discount', 'Eligible Stock', 'Service History Missing', 'Referral', 'Promotional', 'Finance rate match', 'Deposit contribution'];
+
 const methodLabel = (m?: string) => (m === 'Card' ? 'Card (Stripe)' : m === 'Stripe' ? 'Stripe payment link' : m || 'Bank transfer');
 
 // Price breakdown: what the customer owes, what has landed, what is still pending.
@@ -135,7 +138,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   const [date, setDate] = useState('Tue 17 Nov');
   const [time, setTime] = useState('11:00 am');
   const promisedOff = Number((o.promises.join(' ').match(/\$(\d+)\s*off/i) || [])[1] || 0);
-  const [disc, setDisc] = useState({ type: 'Flat' as 'Flat' | 'Percent', value: String(promisedOff || ''), reason: promisedOff ? 'Sales promise' : '', till: '' });
+  const [disc, setDisc] = useState({ type: 'Flat' as 'Flat' | 'Percent', value: String(promisedOff || ''), reason: promisedOff ? 'Car Discount' : '', till: '' });
   // Discount is two screens, like the B2C admin: back-calculate from a target outstanding, then generate the discount.
   const [calc, setCalc] = useState<{ target: string; result: number | null }>({ target: '', result: null });
   const [dsub, setDsub] = useState<'calc' | 'form'>('calc');
@@ -353,11 +356,11 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
           <div className="tform">
             <label className="tf">
               <span>Discount type <i className="req">*</i></span>
-              <div className="tf-sel"><select value={disc.type} onChange={(e) => setDisc({ ...disc, type: e.target.value as 'Flat' | 'Percent' })}><option value="Flat">FLAT</option><option value="Percent">PERCENTAGE</option></select></div>
+              <div className="tf-sel"><select value={disc.type} onChange={(e) => setDisc({ ...disc, type: e.target.value as 'Flat' | 'Percent' })}><option value="Flat">Flat</option><option value="Percent">Percentage</option></select></div>
             </label>
             <label className="tf">
               <span>Discount description <i className="req">*</i></span>
-              <div className="tf-sel"><select value={disc.reason} onChange={(e) => setDisc({ ...disc, reason: e.target.value })}><option value="">Select discount description</option>{['Sales promise', 'Price match', 'Delivery delay goodwill', 'Cosmetic issue', 'Calculated to target outstanding'].map((r) => <option key={r}>{r}</option>)}</select></div>
+              <div className="tf-sel"><select value={disc.reason} onChange={(e) => setDisc({ ...disc, reason: e.target.value })}><option value="">Select discount description</option>{DISCOUNT_DESCRIPTIONS.map((r) => <option key={r}>{r}</option>)}</select></div>
             </label>
             <label className="tf">
               <span>Discount value {disc.type === 'Flat' ? '($)' : '(%)'} <i className="req">*</i></span>
