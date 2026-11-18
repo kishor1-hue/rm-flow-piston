@@ -3,6 +3,7 @@ import { JOURNEYS, PERSONAS, RM_STAGES, type PersonaId, type TransitionDef } fro
 import {
   availableNext, canMove, fmtAge, gatesClear, gateStatus, hsDealStage, isDone, missingFields, money, outstanding,
   prevStage, rmStage, slaState, stageDef, task, type Order, type Task,
+  CRN_NAME, DOC_LABEL, docOutdated, needsCrn, regenerateDoc, type DocKey,
 } from './engine';
 import { PERSONA_JOURNEYS } from './Board';
 import { Field } from './TaskCard';
@@ -27,10 +28,45 @@ type Item = { kind: 'task'; t: Task } | { kind: 'slot' };
 
 type KV = [string, string];
 
-function LeftPanel({ o, now, persona, onDemo, onComms, collapsed, toggle }: {
-  o: Order; now: number; persona: PersonaId; onDemo: (tid: string) => void; onComms: (text: string) => void; collapsed: boolean; toggle: () => void;
+// Document Workflow: every customer document on the order, its version, and the regenerate API when the order changed after it was issued.
+function DocWorkflow({ o, now, onAct }: { o: Order; now: number; onAct: (fn: (o: Order, at: number) => void) => void }) {
+  const c = task(o, 'contract');
+  const docStatus: Record<DocKey, string> = {
+    contract: isDone(c) ? 'Signed' : c && ['sent', 'form4', 'review'].includes(c.stage) ? 'Sent · unsigned' : 'Draft',
+    invoice: 'Issued',
+  };
+  return (
+    <>
+      <div className="lp-title">Document Workflow</div>
+      <div className="cs" style={{ marginBottom: 8 }}>If the order changes (discount, VAS, trade-in, delivery fee), regenerate the affected documents before the next step.</div>
+      {(['contract', 'invoice'] as DocKey[]).map((k) => {
+        const stale = docOutdated(o, k);
+        return (
+          <div key={k} className={'doc-card' + (stale ? ' stale' : '')}>
+            <div className="dh"><b>{DOC_LABEL[k]}</b><span className={'chip ' + (stale ? 'c-amber' : 'c-green')}>{stale ? 'Outdated' : 'Up to date'}</span></div>
+            <div className="dm">v{o.docs[k].v} · {docStatus[k]} · generated {fmtAge(now - o.docs[k].at)} ago</div>
+            {stale && <div className="dm warn">Order changed {fmtAge(now - o.changedAt)} ago, after this version.</div>}
+            <div className="dact">
+              <button className={'btn sm' + (stale ? ' primary' : '')} onClick={() => onAct((x, at) => regenerateDoc(x, k, at))}>↻ Regenerate</button>
+              <span className="hs">POST /documents/{k.toUpperCase()}/regenerate</span>
+            </div>
+          </div>
+        );
+      })}
+      <div className="doc-card">
+        <div className="dh"><b>Driver's licence</b><span className={'chip ' + (o.dl.status === 'Verified' ? 'c-green' : 'c-grey')}>{o.dl.status}</span></div>
+        <div className="dm">{o.dl.state} {o.dl.number} · expires {o.dl.expiry} · uploaded by customer</div>
+        {needsCrn(o) && <div className="dm">{CRN_NAME[o.customer.state]}: <b>{o.dl.crn || (o.dl.status === 'ID requested' ? 'requested' : 'needed')}</b></div>}
+      </div>
+      {o.tradeIn && <div className="doc-card"><div className="dh"><b>Form 4 (trade-in)</b><span className="chip c-grey">{c && ['form4', 'review', 'signed'].includes(c.stage) ? 'Received' : 'Pending'}</span></div><div className="dm">{o.tradeIn.car}</div></div>}
+    </>
+  );
+}
+
+function LeftPanel({ o, now, persona, onDemo, onComms, onAct, collapsed, toggle }: {
+  o: Order; now: number; persona: PersonaId; onDemo: (tid: string) => void; onComms: (text: string) => void; onAct: (fn: (o: Order, at: number) => void) => void; collapsed: boolean; toggle: () => void;
 }) {
-  const [tab, setTab] = useState<'contact' | 'order' | 'car' | 'pricing' | 'teams' | 'activity'>('contact');
+  const [tab, setTab] = useState<'contact' | 'order' | 'car' | 'pricing' | 'docs' | 'teams' | 'activity'>('contact');
   const [feed, setFeed] = useState<'all' | 'rule' | 'comms'>('all');
   const [find, setFind] = useState('');
   const [note, setNote] = useState('');
@@ -49,7 +85,7 @@ function LeftPanel({ o, now, persona, onDemo, onComms, collapsed, toggle }: {
   const boxes = (kv: KV[]) => kv.filter(([k, v]) => !fl || (k + v).toLowerCase().includes(fl)).map(([k, v], i) => (
     <div key={k + i} className="fbox"><label>{k}</label><div>{v || '-'}</div></div>
   ));
-  const TABS = [['contact', '☺ Contact'], ['order', '▤ Order'], ['car', '⛟ Car'], ['pricing', '$ Pricing'], ['teams', `Teams · ${others.filter((t) => stageDef(t).kind !== 'done').length}`], ['activity', 'Activity']] as const;
+  const TABS = [['contact', '☺ Contact'], ['order', '▤ Order'], ['car', '⛟ Car'], ['pricing', '$ Pricing'], ['docs', `▣ Document Workflow${(['contract', 'invoice'] as DocKey[]).some((k) => docOutdated(o, k)) ? ' ·!' : ''}`], ['teams', `Teams · ${others.filter((t) => stageDef(t).kind !== 'done').length}`], ['activity', 'Activity']] as const;
   return (
     <div className={'ws-left' + (collapsed ? ' shut' : '')}>
       <button className="lp-tog" aria-label={collapsed ? 'Show details' : 'Hide details'} onClick={toggle}>{collapsed ? '›' : '‹'}</button>
@@ -103,6 +139,7 @@ function LeftPanel({ o, now, persona, onDemo, onComms, collapsed, toggle }: {
                 })}
               </>
             )}
+            {tab === 'docs' && <DocWorkflow o={o} now={now} onAct={onAct} />}
             {tab === 'activity' && (
               <>
                 <div className="ftabs" style={{ marginTop: 0 }}>
@@ -315,7 +352,7 @@ export function OrderView({ o, persona, now, focus, onFocus, onField, onMove, on
 
   return (
     <div className={'ws' + (leftShut ? ' lshut' : '') + (gptOpen ? '' : ' rshut')}>
-      <LeftPanel o={o} now={now} persona={persona} onDemo={onDemo} onComms={onComms} collapsed={leftShut} toggle={() => setLeftShut(!leftShut)} />
+      <LeftPanel o={o} now={now} persona={persona} onDemo={onDemo} onComms={onComms} onAct={onAct} collapsed={leftShut} toggle={() => setLeftShut(!leftShut)} />
 
       {persona === 'rm' ? (
         <div className="ws-mid">

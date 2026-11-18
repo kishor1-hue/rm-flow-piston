@@ -19,11 +19,11 @@ const VAS: Record<string, VasItem> = {
 interface SeedDef {
   id: string; name: string; state: State; suburb: string; carState?: State; mode: PaymentMode; lender?: string;
   car: [string, string, number, number, string]; price: number; deposit: number; vas?: ('tint' | 'ppf' | 'cam' | 'ew')[];
-  promises?: string[]; tradeIn?: [string, number]; home?: boolean; pay?: 'Card' | 'Stripe'; depositH: number; steps: Step[];
+  promises?: string[]; tradeIn?: [string, number]; home?: boolean; pay?: 'Card' | 'Stripe'; dlState?: State; depositH: number; steps: Step[];
 }
 
 const SEEDS: SeedDef[] = [
-  { id: 'LV-7Q2K', name: 'Ava Thompson', state: 'VIC', suburb: 'Footscray', mode: 'Cash', car: ['Mazda', 'CX-5 Maxx Sport', 2021, 48210, 'Soul Red'], price: 32990, deposit: 1000, vas: ['tint'], depositH: 0.4, promises: ['$300 off agreed on the lot', 'New floor mats'], steps: [] },
+  { id: 'LV-7Q2K', name: 'Ava Thompson', state: 'VIC', dlState: 'NSW', suburb: 'Footscray', mode: 'Cash', car: ['Mazda', 'CX-5 Maxx Sport', 2021, 48210, 'Soul Red'], price: 32990, deposit: 1000, vas: ['tint'], depositH: 0.4, promises: ['$300 off agreed on the lot', 'New floor mats'], steps: [] },
   { id: 'LV-3M9D', name: 'Daniel Nguyen', state: 'NSW', suburb: 'Parramatta', mode: 'Cash', car: ['Toyota', 'Corolla Ascent Sport', 2020, 61200, 'Silver'], price: 22490, deposit: 1000, pay: 'Card', tradeIn: ['2015 Hyundai i30', 6000], depositH: 2.3, steps: [] },
   { id: 'LV-4ST9', name: 'Sophie Clarke', state: 'VIC', suburb: 'Brunswick', mode: 'Cash', pay: 'Card', car: ['Hyundai', 'i30 Active', 2021, 41800, 'Fluid Metal'], price: 23990, deposit: 1000, vas: ['ppf'], promises: ['Second key'], depositH: 0.8, steps: [] },
   {
@@ -100,6 +100,7 @@ export function buildSeed(now: number): Order[] {
       promises: s.promises || [],
       tradeIn: s.tradeIn ? { car: s.tradeIn[0], value: s.tradeIn[1] } : undefined,
       deliveryMode: s.home ? 'Home delivery' : 'Pick up',
+      dl: { number: String(10000000 + i * 7919).slice(0, 8), state: s.dlState || s.state, expiry: `0${1 + (i % 9)}/202${8 + (i % 2)}`, status: s.depositH > 60 ? 'Verified' : 'Uploaded' },
       interstate: carState !== s.state,
       depositAt: now - s.depositH * HOUR,
     });

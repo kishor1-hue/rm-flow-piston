@@ -4,7 +4,7 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { JOURNEYS, PERSONAS, type TransitionDef } from './model';
 import {
   applyDiscount, approveDiscount, availableNext, canMove, DISCOUNT_LIMIT, finaliseTradeIn, fmtAge, gatesClear, gateStatus,
-  addVas, dap, govtCharges, isDone, missingFields, money, removeVas, VAS_CATALOG, vasTotal, type PlanType, orderTotal, outstanding, recordPayment, setDeliveryMode, skipStep, stageDef, task, type Order, type Task,
+  addVas, CRN_NAME, dap, DOC_LABEL, docOutdated, needsCrn, regenerateDoc, requestCrn, verifyDl, type DocKey, govtCharges, isDone, missingFields, money, removeVas, VAS_CATALOG, vasTotal, type PlanType, orderTotal, outstanding, recordPayment, setDeliveryMode, skipStep, stageDef, task, type Order, type Task,
 } from './engine';
 import { Field } from './TaskCard';
 import { proofPng } from './proof';
@@ -31,24 +31,26 @@ function prefillChecklist(promises: string[]): FormValues {
   return v;
 }
 
-export type RmStep = 'deposit' | 'discount' | 'vas' | 'docs' | 'promise' | 'tradein' | 'balance' | 'delivery';
+export type RmStep = 'deposit' | 'discount' | 'vas' | 'docs' | 'promise' | 'tradein' | 'balance' | 'final' | 'delivery';
 type Act = (fn: (o: Order, at: number) => void) => void;
 
 const STEPS: { key: RmStep; label: string; where: string }[] = [
   { key: 'deposit', label: 'Verify deposit', where: 'Finance ticket · HubSpot 01a' },
   { key: 'discount', label: 'Discount', where: 'B2C admin · Discount codes' },
   { key: 'vas', label: 'Add VAS', where: 'B2C admin · VAS Sales' },
-  { key: 'docs', label: 'Customer documents', where: 'Customer documents ticket · HubSpot 02' },
+  { key: 'docs', label: 'Customer documents', where: "Driver's licence · registration state" },
   { key: 'promise', label: 'Sales promise', where: 'Deal property sales_promise_' },
   { key: 'tradein', label: 'Trade-in', where: 'B2C admin · Add trade-in' },
   { key: 'balance', label: 'Balance payment', where: 'Finance ticket · HubSpot 01a' },
+  { key: 'final', label: 'Contract & invoice', where: 'Customer documents ticket · HubSpot 02' },
   { key: 'delivery', label: 'Book delivery', where: 'B2C admin · Book delivery slots' },
 ];
 
 export function stepDone(o: Order, k: RmStep): boolean {
   const pay = task(o, 'payment');
   if (k === 'deposit') return !!pay && pay.stage !== 'deposit';
-  if (k === 'docs') return isDone(task(o, 'contract'));
+  if (k === 'docs') return o.dl.status === 'Verified';
+  if (k === 'final') return !!o.rmDone.final;
   if (k === 'vas') return !!o.rmDone.vas;
   if (k === 'promise') return !!o.rmDone.promise;
   if (k === 'discount') return !!o.rmDone.discount && o.discount?.status !== 'Awaiting approval';
@@ -250,6 +252,8 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   const [spTried, setSpTried] = useState(false);
   const [vasModal, setVasModal] = useState(false);
   const [vasRow, setVasRow] = useState('');
+  const [crn, setCrn] = useState('');
+  useEffect(() => { setCrn(''); }, [o.id]);
   useEffect(() => { setSp(o.promiseChecklist || prefillChecklist(o.promises)); setSpTried(false); }, [o.id]);
   const [tiv, setTiv] = useState(String(o.tradeIn?.value || ''));
   const [pay, setPay] = useState({ amount: '', ref: '' });
@@ -344,20 +348,68 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   }
 
   if (step === 'docs') {
-    const a = taskActions(c);
-    primary = a.primary; alts = a.alts;
+    const mism = needsCrn(o);
+    const crnName = CRN_NAME[o.customer.state];
+    const dl = o.dl;
+    if (dl.status !== 'Verified') {
+      if (!mism) primary = { label: "Verify driver's licence", run: () => act((x, at) => verifyDl(x, undefined, at)) };
+      else if (dl.status === 'Uploaded') {
+        primary = { label: `Request ${crnName}`, run: () => act((x, at) => requestCrn(x, at)) };
+        alts = [{ label: `Customer already shared it, enter ${crnName}`, run: () => act((x, at) => requestCrn(x, at)) }];
+      } else {
+        primary = { label: `Verify licence & ${crnName}`, run: () => act((x, at) => verifyDl(x, crn.trim(), at)), block: crn.trim().length < 6 ? `Enter the ${crnName}` : '' };
+        alts = [{ label: 'Send a reminder to the customer', run: () => onComms(`Reminder sent: please share your ${crnName}`) }];
+      }
+    }
+    fx = dl.status === 'Verified' ? [] : mism && dl.status === 'Uploaded'
+      ? [`SMS + email the customer: how to get a ${crnName} from the ${o.customer.state} road authority and share it`, 'Customer documents waits on the number; SLA nudge after 24h']
+      : ["Mark the driver's licence verified on the order", mism ? `Save the ${crnName} to the order for registration (Registration team)` : 'Registration team can lodge the transfer in the customer state', 'Sync to OMS'];
+    body = (
+      <>
+        <div className="sec-h">Driver's licence <span className="hs">uploaded by the customer on the portal</span></div>
+        <div className="kvgrid">
+          {([['Licence holder', o.customer.name], ['Licence number', dl.number], ['State of issue', dl.state], ['Expiry', dl.expiry], ['Lives in', `${o.customer.suburb}, ${o.customer.state}`], ['Registration state', o.customer.state]] as [string, string][]).map(([k, v]) => <div key={k}><span>{k}</span><b>{v}</b></div>)}
+        </div>
+        {!mism
+          ? <div className="statusline">Licence state {dl.state} matches the registration state {o.customer.state}. No customer reference number needed.</div>
+          : <div className="statusline warn"><b>{dl.state} licence, registering in {o.customer.state}.</b> The customer needs a <b>{crnName}</b> from the {o.customer.state} road authority and must share it with us before the car can be registered.</div>}
+        {mism && dl.status === 'ID requested' && (
+          <div className="tform" style={{ gridTemplateColumns: 'minmax(0, 1fr)' }}>
+            <label className="tf"><span>{crnName} <i className="req">*</i></span><input className="tf-in" value={crn} placeholder="e.g. 123456789" onChange={(e) => setCrn(e.target.value)} /><small className="tf-help">Requested from the customer · enter it when they share it</small></label>
+          </div>
+        )}
+        {dl.status === 'Verified' && <div className="statusline">Verified{dl.crn ? ` · ${crnName}: ${dl.crn}` : ''}.</div>}
+      </>
+    );
+  }
+
+  if (step === 'final') {
+    const signed = isDone(c);
+    const stale = (['contract', 'invoice'] as DocKey[]).filter((k) => docOutdated(o, k));
+    if (!signed) { const a = taskActions(c); primary = a.primary; alts = a.alts; }
+    else if (stale.length) primary = { label: `Regenerate ${stale.map((k) => DOC_LABEL[k].split(' (')[0].toLowerCase()).join(' & ')}`, run: () => act((x, at) => stale.forEach((k) => regenerateDoc(x, k, at))) };
+    else if (!o.rmDone.final) primary = { label: 'Confirm contract & invoice', run: () => act((x, at) => skipStep(x, 'final', 'Contract signed and tax invoice checked before delivery booking', at)) };
     const n0 = availableNext(o, c)[0];
-    fx = n0?.to === 'signed' ? ['Stamp contract signed date (HubSpot TW02a)', 'Contract gate ✓ for delivery', 'Sync to OMS so the customer app can open the slot'] : n0?.to === 'sent' ? ['Send the DocuSign envelope with the tax invoice', 'Deal contract status → Contract not signed (TW02b)', 'Nudge the customer after 48h'] : [];
+    fx = !signed ? (n0?.to === 'signed' ? ['Stamp contract signed date (HubSpot TW02a)', 'Contract gate ✓ for delivery', 'Sync to OMS so the customer app can open the slot'] : n0?.to === 'sent' ? ['Send the DocuSign envelope with the tax invoice', 'Deal contract status → Contract not signed (TW02b)', 'Nudge the customer after 48h'] : [])
+      : stale.length ? ['Call the regenerate API for each outdated document', 'A regenerated contract goes out as a new DocuSign envelope'] : !o.rmDone.final ? ['Contract & invoice gate ✓ — delivery can be booked'] : [];
+    const check = (ok: boolean, label: string, note: string, k?: DocKey) => (
+      <div className={'chk' + (ok ? ' ok' : ' bad')}>
+        <i>{ok ? '✓' : '!'}</i><div><b>{label}</b><small>{note}</small></div>
+        {k && !ok && <button className="btn sm" onClick={() => act((x, at) => regenerateDoc(x, k, at))}>Regenerate</button>}
+      </div>
+    );
     body = (
       <>
         <TicketStatus o={o} t={c} title={`${o.id}-${o.apptId}(Customer Documents)`} onMove={(to) => moveTask(c, to)} />
-        <div className="kvbox" style={{ marginTop: 12 }}>
-          <div><span>Contract handling</span><b>Contract sent through Portal</b></div>
-          <div><span>DocuSign status</span><b>{isDone(c) ? 'Signed' : ['sent', 'form4', 'review'].includes(c.stage) ? 'Sent · unsigned' : 'Not sent'}</b></div>
-          <div><span>Driver's licence</span><b>Uploaded by customer on the portal</b></div>
-          <div><span>Trade-in paperwork</span><b>{o.tradeIn ? 'Form 4 needed' : 'Not needed'}</b></div>
+        <div className="sec-h">Before booking delivery</div>
+        <div className="chks">
+          {check(signed, 'Contract signed', signed ? 'DocuSign envelope completed' : ['sent', 'form4', 'review'].includes(c.stage) ? 'Sent · waiting for the customer to sign' : 'Not sent yet')}
+          {check(!docOutdated(o, 'contract'), `Contract up to date · v${o.docs.contract.v}`, docOutdated(o, 'contract') ? 'Order changed after it was generated (discount, VAS or trade-in)' : `Generated ${fmtAge(Date.now() - o.docs.contract.at)} ago`, 'contract')}
+          {check(!docOutdated(o, 'invoice'), `Tax invoice correct · v${o.docs.invoice.v}`, docOutdated(o, 'invoice') ? `Invoice total is out of date; order total is now ${money(orderTotal(o))}` : `Total ${money(orderTotal(o))} · generated ${fmtAge(Date.now() - o.docs.invoice.at)} ago`, 'invoice')}
+          {o.tradeIn && check(['form4', 'review', 'signed'].includes(c.stage) || signed, 'Trade-in Form 4', 'Required for the trade-in')}
         </div>
-        <StageFields t={c} onField={(k, v) => onField(c.id, k, v)} />
+        {!signed && <StageFields t={c} onField={(k, v) => onField(c.id, k, v)} />}
+        {o.rmDone.final && <div className="statusline">Checked {fmtAge(Date.now() - o.rmDone.final)} ago. Delivery can be booked.</div>}
       </>
     );
   }
@@ -380,7 +432,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
         {!done ? (
           <>
             <div className="sf-api">Prefilled from the deal's sales promise · {spForm.apiSources[0].key} (dummy)</div>
-            <SchemaForm page={SP_PAGE} values={sp} showErrors={spTried} onChange={(id, v) => setSp((cur) => ({ ...cur, [id]: v }))} />
+            <SchemaForm stepper key={o.id} page={SP_PAGE} values={sp} showErrors={spTried} onChange={(id, v) => setSp((cur) => ({ ...cur, [id]: v }))} />
           </>
         ) : (
           <>

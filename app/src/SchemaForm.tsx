@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 // Renders a form-builder page schema (fields, blocks, AND-ed visible/required conditions) the way LeadVerse would.
 // Supports the field types the sales-promise checklist uses: select, checkbox (multi), textarea, file_upload.
 
@@ -87,7 +89,8 @@ function FieldInput({ f, value, onChange, error }: { f: SchemaField; value?: For
   return <input className="tf-in" value={(value as string) || ''} placeholder={f.placeholder} onChange={(e) => onChange(e.target.value)} />;
 }
 
-export function SchemaForm({ page, values, onChange, showErrors }: { page: SchemaPage; values: FormValues; onChange: (id: string, v: FormValue) => void; showErrors: boolean }) {
+export function SchemaForm({ page, values, onChange, showErrors, stepper }: { page: SchemaPage; values: FormValues; onChange: (id: string, v: FormValue) => void; showErrors: boolean; stepper?: boolean }) {
+  const [cur, setCur] = useState(0);
   const byId = new Map(page.fields.map((f) => [f.id, f]));
   const errs = showErrors ? validate(page, values) : {};
   const ordered = page.blocks.map((b) => byId.get(b.fieldId)!).filter(Boolean);
@@ -105,11 +108,57 @@ export function SchemaForm({ page, values, onChange, showErrors }: { page: Schem
       {errs[f.id] && <div className="dc-err">{errs[f.id]}</div>}
     </div>
   );
+  if (!stepper) {
+    return (
+      <div className="sf">
+        {groups.map((g) => g[0].type !== 'checkbox' ? g.map(field) : !isVisible(g[0], values) ? null : (
+          <div key={g[0].id} className="sf-group">{g.map(field)}</div>
+        ))}
+      </div>
+    );
+  }
+  // Stepper: fields before the first category stay on top; each visible category (and the trailing fields) is one step.
+  const firstCat = groups.findIndex((g) => g[0].type === 'checkbox');
+  const head = firstCat < 0 ? groups : groups.slice(0, firstCat);
+  const rest = firstCat < 0 ? [] : groups.slice(firstCat);
+  const steps: { key: string; label: string; fields: SchemaField[] }[] = [];
+  const tail: SchemaField[] = [];
+  for (const g of rest) {
+    if (g[0].type === 'checkbox') { if (isVisible(g[0], values)) steps.push({ key: g[0].id, label: g[0].label, fields: g }); }
+    else tail.push(...g.filter((f) => isVisible(f, values)));
+  }
+  if (tail.length) steps.push({ key: '_tail', label: 'Other comments', fields: tail });
+  const i = Math.min(cur, Math.max(0, steps.length - 1));
+  const count = (st: (typeof steps)[number]) => st.fields[0].type === 'checkbox' ? ((values[st.fields[0].id] as string[]) || []).length : st.fields.filter((f) => !empty(values[f.id])).length;
+  const bad = (st: (typeof steps)[number]) => st.fields.some((f) => errs[f.id]);
   return (
     <div className="sf">
-      {groups.map((g) => g[0].type !== 'checkbox' ? g.map(field) : !isVisible(g[0], values) ? null : (
-        <div key={g[0].id} className="sf-group">{g.map(field)}</div>
-      ))}
+      {head.map((g) => g.map(field))}
+      {steps.length > 0 && (
+        <div className="sfs">
+          <div className="sfs-tabs" role="tablist">
+            {steps.map((st, k) => {
+              const n = count(st);
+              return (
+                <button key={st.key} role="tab" aria-selected={k === i} className={'sfs-tab' + (k === i ? ' on' : '') + (n ? ' has' : '') + (bad(st) ? ' bad' : '')} onClick={() => setCur(k)}>
+                  <i>{n ? n : k + 1}</i>{st.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="sfs-body">
+            <div className="sfs-title"><b>{steps[i].label}</b><small>Step {i + 1} of {steps.length}{steps[i].fields[0].type === 'checkbox' ? ' · select all that apply' : ''}</small></div>
+            {steps[i].fields.map((f) => steps[i].fields[0].type === 'checkbox' && f === steps[i].fields[0]
+              ? <div key={f.id} className="sf-field"><FieldInput f={f} value={values[f.id]} onChange={(v) => onChange(f.id, v)} /></div>
+              : field(f))}
+            <div className="sfs-nav">
+              <button className="btn sm" disabled={i === 0} onClick={() => setCur(i - 1)}>‹ {i > 0 ? steps[i - 1].label : 'Previous'}</button>
+              <div className="sfs-dots">{steps.map((st, k) => <span key={st.key} className={k === i ? 'on' : count(st) ? 'has' : ''} />)}</div>
+              <button className="btn sm" disabled={i === steps.length - 1} onClick={() => setCur(i + 1)}>{i < steps.length - 1 ? steps[i + 1].label : 'Next'} ›</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

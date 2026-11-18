@@ -71,6 +71,14 @@ export const vasTotal = (o: Order) => o.vas.filter((v) => v.status !== 'CANCELLE
 // DAP (drive-away price) = EGC + government charges + delivery fees + VAS + accessories.
 export const dap = (o: Order) => o.price + govtCharges(o).total + o.shipping + vasTotal(o);
 
+export interface DriverLicence { number: string; state: State; expiry: string; status: 'Uploaded' | 'ID requested' | 'Verified'; crn?: string }
+export type DocKey = 'contract' | 'invoice';
+export const DOC_LABEL: Record<DocKey, string> = { contract: 'Contract of sale (DocuSign)', invoice: 'Tax invoice' };
+// Customer reference number the state road authority issues; needed to register a car in a state other than the one on the licence.
+export const CRN_NAME: Record<State, string> = { VIC: 'VicRoads customer number', NSW: 'Service NSW customer number', QLD: 'TMR customer reference number' };
+export const needsCrn = (o: Order) => o.dl.state !== o.customer.state;
+export const docOutdated = (o: Order, k: DocKey) => o.changedAt > o.docs[k].at;
+
 export interface Order {
   id: string;
   apptId: string;
@@ -92,8 +100,11 @@ export interface Order {
   payments: { type: string; amount: number; at: number; ref: string; by: string; method?: string }[];
   discount?: { type: 'Flat' | 'Percent'; value: number; amount: number; reason: string; status: 'Applied' | 'Awaiting approval'; till?: string };
   shipping: number; // deal shipping_charges (home delivery)
-  rmDone: Partial<Record<'promise' | 'discount' | 'tradein' | 'vas', number>>;
+  rmDone: Partial<Record<'promise' | 'discount' | 'tradein' | 'vas' | 'final', number>>;
   promiseChecklist?: Record<string, string | string[]>; // submitted Sales Promise Refurbishment Checklist
+  dl: DriverLicence;
+  docs: Record<DocKey, { v: number; at: number }>;
+  changedAt: number; // last change that alters the contract / invoice amounts
   slot?: { date: string; time: string; by: string; override?: boolean };
   bypassContract: boolean;
   tasks: Task[];
@@ -170,8 +181,8 @@ export function hsDealStage(o: Order) {
 }
 
 // ---------- events ----------
-export function createOrder(base: Omit<Order, 'tasks' | 'activity' | 'bypassContract' | 'payments' | 'rmDone' | 'shipping'> & { shipping?: number }): Order {
-  const o: Order = { ...base, vas: [{ ...BASE_WARRANTY }, ...base.vas], shipping: base.shipping || 0, tasks: [], activity: [], bypassContract: false, payments: [], rmDone: {} };
+export function createOrder(base: Omit<Order, 'tasks' | 'activity' | 'bypassContract' | 'payments' | 'rmDone' | 'shipping' | 'docs' | 'changedAt'> & { shipping?: number }): Order {
+  const o: Order = { ...base, docs: { contract: { v: 1, at: base.depositAt }, invoice: { v: 1, at: base.depositAt } }, changedAt: base.depositAt, vas: [{ ...BASE_WARRANTY }, ...base.vas], shipping: base.shipping || 0, tasks: [], activity: [], bypassContract: false, payments: [], rmDone: {} };
   const at = o.depositAt;
   const bank = o.paymentMethod === 'Bank transfer';
   const ref = bank ? 'BT-' + o.id.replace(/\W/g, '') : (o.paymentMethod === 'Card' ? 'pi_' : 'cs_') + o.id.replace(/\W/g, '').toLowerCase() + '3xK';
@@ -317,16 +328,19 @@ export function applyDiscount(o: Order, type: 'Flat' | 'Percent', value: number,
   const status = amount > DISCOUNT_LIMIT ? 'Awaiting approval' : 'Applied';
   o.discount = { type, value, amount, reason, status, till };
   o.rmDone.discount = at;
+  o.changedAt = at;
   log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text: `Discount ${type === 'Flat' ? money(value) : value + '%'} (${money(amount)}) — ${reason}` });
   log(o, { at, who: 'Workflow', kind: 'rule', rule: 'R-13', text: status === 'Applied' ? `Discount applied — outstanding now ${money(outstanding(o))}, tax invoice regenerated` : `Above ${money(DISCOUNT_LIMIT)} — sent to sales manager for approval` });
 }
 export function approveDiscount(o: Order, at: number) {
   if (!o.discount) return;
   o.discount.status = 'Applied';
+  o.changedAt = at;
   log(o, { at, who: 'Sales manager', kind: 'rule', rule: 'R-13', text: `Discount approved — outstanding now ${money(outstanding(o))}, tax invoice regenerated` });
 }
 export function addVas(o: Order, item: VasItem, type: PlanType, at: number) {
   o.vas.push({ ...item, type, status: 'ACTIVE' });
+  o.changedAt = at;
   log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text: `VAS added: ${item.name} (${money(item.price)})` });
   log(o, { at, who: 'Workflow', kind: 'rule', rule: 'R-04', text: `Outstanding recalculated to ${money(outstanding(o))}; tax invoice regenerated` });
   vasCheck(o, at);
@@ -335,9 +349,26 @@ export function removeVas(o: Order, name: string, at: number) {
   const v = o.vas.find((x) => x.name === name && !x.base);
   if (!v) return;
   o.vas = o.vas.filter((x) => x !== v);
+  o.changedAt = at;
   log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text: `VAS removed: ${name}` });
 }
-export function skipStep(o: Order, step: 'promise' | 'discount' | 'tradein' | 'vas', text: string, at: number) {
+// Document Workflow: regenerate API (b2c-admin) re-issues the document at the order's current amounts.
+export function regenerateDoc(o: Order, k: DocKey, at: number) {
+  o.docs[k] = { v: o.docs[k].v + 1, at };
+  log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text: `${DOC_LABEL[k]} regenerated (v${o.docs[k].v}) · POST /api/admin/order/${o.id}/documents/${k.toUpperCase()}/regenerate` });
+  if (k === 'contract') log(o, { at, who: 'Workflow', kind: 'comms', text: 'New DocuSign envelope sent; the customer signs the updated contract' });
+}
+// Driver's licence check (Customer documents step).
+export function requestCrn(o: Order, at: number) {
+  o.dl.status = 'ID requested';
+  log(o, { at, who: who('rm'), kind: 'comms', text: `Asked ${o.customer.name.split(' ')[0]} for a ${CRN_NAME[o.customer.state]}: ${o.dl.state} licence, registering in ${o.customer.state}` });
+}
+export function verifyDl(o: Order, crn: string | undefined, at: number) {
+  o.dl.status = 'Verified';
+  if (crn) o.dl.crn = crn;
+  log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text: `Driver's licence verified (${o.dl.state} ${o.dl.number})${crn ? ` · ${CRN_NAME[o.customer.state]} ${crn}` : ''}` });
+}
+export function skipStep(o: Order, step: 'promise' | 'discount' | 'tradein' | 'vas' | 'final', text: string, at: number) {
   o.rmDone[step] = at;
   log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text });
 }
@@ -345,6 +376,7 @@ export function finaliseTradeIn(o: Order, value: number, at: number) {
   if (!o.tradeIn) return;
   o.tradeIn.value = value;
   o.rmDone.tradein = at;
+  o.changedAt = at;
   log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text: `Trade-in final value ${money(value)} (${o.tradeIn.car})` });
   log(o, { at, who: 'Workflow', kind: 'rule', rule: 'R-13', text: `Outstanding recalculated to ${money(outstanding(o))}; Trade-in ops task (02c) gets the final valuation` });
 }

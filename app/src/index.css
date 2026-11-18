@@ -567,3 +567,43 @@ tr.vas-x small { color: var(--mute); }
 .modal-card .sp { flex: 1; }
 .btn.wide { width: 100%; justify-content: center; padding: 12px; font-size: 14px; }
 .tf-sel select:disabled { background: var(--bg); color: var(--mute-2); cursor: not-allowed; }
+
+/* Contract & invoice checks */
+.chks { display: flex; flex-direction: column; gap: 8px; }
+.chk { display: flex; align-items: center; gap: 12px; border: 1px solid var(--line-2); border-radius: 12px; background: #fff; padding: 10px 14px; }
+.chk > i { font-style: normal; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; flex: none; }
+.chk.ok > i { background: var(--green-bg); color: var(--green); }
+.chk.bad > i { background: var(--amber-bg); color: var(--amber-ink); }
+.chk > div { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; font-size: 13.5px; }
+.chk small { color: var(--mute); font-size: 12.5px; }
+.chk.bad { border-color: #F7D9AE; }
+
+/* Document Workflow (left panel) */
+.doc-card { border: 1px solid var(--line-2); border-radius: 10px; background: #fff; padding: 10px 12px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 4px; }
+.doc-card.stale { border-color: #F7D9AE; background: #FFFBF5; }
+.doc-card .dh { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.doc-card .dm { font-size: 12px; color: var(--mute); }
+.doc-card .dm.warn { color: var(--amber-ink); }
+.doc-card .dact { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+
+/* Sales promise stepper */
+.sfs { border: 1px solid var(--line-2); border-radius: 14px; background: #fff; overflow: hidden; }
+.sfs-tabs { display: flex; gap: 2px; overflow-x: auto; border-bottom: 1px solid var(--line-2); padding: 0 8px; scrollbar-width: thin; }
+.sfs-tab { position: relative; display: flex; align-items: center; gap: 7px; white-space: nowrap; border: 0; background: none; font: inherit; font-size: 13px; color: var(--mute); padding: 12px 10px; cursor: pointer; }
+.sfs-tab i { font-style: normal; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; display: grid; place-items: center; font-size: 11px; font-weight: 600; background: var(--grey-bg); color: var(--grey-ink); }
+.sfs-tab:hover { color: var(--ink); }
+.sfs-tab.has i { background: var(--lv-soft); color: var(--lv-ink); }
+.sfs-tab.bad i { background: var(--red-bg); color: var(--red); }
+.sfs-tab.on { color: var(--lv); font-weight: 600; }
+.sfs-tab.on i { background: var(--lv); color: #fff; }
+.sfs-tab.on::after { content: ''; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2.5px; border-radius: 2px 2px 0 0; background: var(--lv); }
+.sfs-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; }
+.sfs-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.sfs-title b { font-size: 16px; }
+.sfs-title small { color: var(--mute); font-size: 12.5px; }
+.sfs-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; margin-top: 4px; }
+.sfs-dots { display: flex; gap: 5px; flex-wrap: wrap; justify-content: center; }
+.sfs-dots span { width: 7px; height: 7px; border-radius: 50%; background: var(--line-2); }
+.sfs-dots span.has { background: #A9A1FF; }
+.sfs-dots span.on { background: var(--lv); width: 18px; border-radius: 4px; }
+.sfs-body .sf-up { margin-left: 0; }
