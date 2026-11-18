@@ -118,6 +118,8 @@ export function buildSeed(now: number): Order[] {
       if (j === 'payment' && to === 'instalment' && t.stage !== 'deposit') continue; // card / Stripe already auto-confirmed
       Object.assign(t.fields, fields || {});
       move(o, t, to, JOURNEYS[j].persona, at);
+      // RM already ran the contract & invoice check once the customer signed
+      if (j === 'contract' && to === 'signed') o.rmDone.final = at + HOUR;
     }
     if (s.tiAccepted) acceptTradeIn(o, now - 40 * HOUR);
     return o;
