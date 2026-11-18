@@ -4,8 +4,9 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { JOURNEYS, PERSONAS, TI_FIELDS, type TransitionDef } from './model';
 import {
   acceptTradeIn, applyDiscount, approveDiscount, disputeTradeIn, TI_CONFLICT_REASONS, setTradeInOpted, availableNext, canMove, DISCOUNT_LIMIT, fmtAge, gatesClear, gateStatus,
-  addVas, CRN_NAME, dap, DOC_LABEL, docOutdated, regenerateDoc, requestCrn, verifyDl, dlSuggest, receiveCrn, remindCrn, requestReupload, setDlCheck, type DlCheck, type DocKey, govtCharges, isDone, missingFields, money, removeVas, VAS_CATALOG, vasTotal, type PlanType, orderTotal, outstanding, recordPayment, type PaymentEntry, setDeliveryMode, skipStep, stageDef, task, type Order, type Task,
+  addVas, CRN_NAME, dap, DOC_LABEL, docOutdated, regenerateDoc, requestCrn, verifyDl, dlSuggest, receiveCrn, remindCrn, requestReupload, setDlCheck, type DlCheck, type DocKey, govtCharges, isDone, missingFields, money, removeVas, VAS_CATALOG, vasTotal, type PlanType, orderTotal, outstanding, recordPayment, type PaymentEntry, isRegistered, setDeliveryMode, skipStep, stageDef, task, type Order, type Task,
 } from './engine';
+import { PrepStatus } from './Visibility';
 import { Field } from './TaskCard';
 import { dlPng, proofPng } from './proof';
 import { payload, SchemaForm, validate, type FormValues, type SchemaPage } from './SchemaForm';
@@ -31,7 +32,7 @@ function prefillChecklist(promises: string[]): FormValues {
   return v;
 }
 
-export type RmStep = 'deposit' | 'discount' | 'vas' | 'docs' | 'promise' | 'tradein' | 'final' | 'balance' | 'delivery';
+export type RmStep = 'deposit' | 'discount' | 'vas' | 'docs' | 'promise' | 'tradein' | 'final' | 'balance' | 'prep' | 'delivery';
 type Act = (fn: (o: Order, at: number) => void) => void;
 
 const STEPS: { key: RmStep; label: string; where: string }[] = [
@@ -43,6 +44,7 @@ const STEPS: { key: RmStep; label: string; where: string }[] = [
   { key: 'tradein', label: 'Trade-in', where: 'Trade-In team owns the price · HubSpot 02c' },
   { key: 'final', label: 'Contract & invoice', where: 'Customer documents ticket · HubSpot 02' },
   { key: 'balance', label: 'Balance payment', where: '' },
+  { key: 'prep', label: 'Car prep status', where: '' },
   { key: 'delivery', label: 'Book delivery', where: 'B2C admin · Book delivery slots' },
 ];
 
@@ -57,6 +59,7 @@ export function stepDone(o: Order, k: RmStep): boolean {
   if (k === 'discount') return !!o.rmDone.discount && o.discount?.status !== 'Awaiting approval';
   if (k === 'tradein') return o.tradeInOpted !== 'Yes' || !!o.rmDone.tradein;
   if (k === 'balance') return isDone(pay);
+  if (k === 'prep') return isDone(task(o, 'rwc')) && isDone(task(o, 'refurb')) && isRegistered(o);
   return !!o.slot;
 }
 // The Trade-in step only exists when the customer opted in (answered in step 1).
@@ -858,6 +861,12 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
         {isDone(p) && <div className="statusline">Finance GFD. Fully paid.</div>}
       </>
     );
+  }
+
+  if (step === 'prep') {
+    const open = (['rwc', 'refurb', 'rego'] as const).map((j) => task(o, j)).filter((t) => t && !isDone(t));
+    alts = open.map((t) => ({ label: `Nudge ${t!.journey === 'refurb' ? 'Refurb' : 'Registration & RWC'} on ${stageDef(t!).label}`, run: () => onComms(`Nudged the ${t!.journey === 'refurb' ? 'Refurb' : 'Registration & RWC'} team: ${stageDef(t!).label}`) }));
+    body = <PrepStatus o={o} />;
   }
 
   if (step === 'delivery') {
