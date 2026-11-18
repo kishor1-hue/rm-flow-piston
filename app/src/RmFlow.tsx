@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { JOURNEYS, PERSONAS, TI_FIELDS, type TransitionDef } from './model';
 import {
-  acceptTradeIn, applyDiscount, approveDiscount, disputeTradeIn, setTradeInOpted, availableNext, canMove, DISCOUNT_LIMIT, fmtAge, gatesClear, gateStatus,
+  acceptTradeIn, applyDiscount, approveDiscount, disputeTradeIn, TI_CONFLICT_REASONS, setTradeInOpted, availableNext, canMove, DISCOUNT_LIMIT, fmtAge, gatesClear, gateStatus,
   addVas, CRN_NAME, dap, DOC_LABEL, docOutdated, regenerateDoc, requestCrn, verifyDl, dlSuggest, receiveCrn, remindCrn, requestReupload, setDlCheck, type DlCheck, type DocKey, govtCharges, isDone, missingFields, money, removeVas, VAS_CATALOG, vasTotal, type PlanType, orderTotal, outstanding, recordPayment, type PaymentEntry, setDeliveryMode, skipStep, stageDef, task, type Order, type Task,
 } from './engine';
 import { Field } from './TaskCard';
@@ -362,7 +362,8 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   const [dlZoom, setDlZoom] = useState<'' | 'front' | 'back'>('');
   useEffect(() => { setCrn(''); }, [o.id]);
   useEffect(() => { setSp(o.promiseChecklist || prefillChecklist(o.promises)); setSpTried(false); }, [o.id]);
-  const [tiDispute, setTiDispute] = useState('');
+  const [tiAns, setTiAns] = useState({ agree: '', reason: '', expected: '', note: '' });
+  useEffect(() => { setTiAns({ agree: '', reason: '', expected: '', note: '' }); }, [o.id, o.tradeIn?.value, o.tradeIn?.finalAt]);
   useEffect(() => { setMenu(false); }, [step, o.id]);
   // Finishing a step moves the RM on to the next open one.
   const wasDone = useRef({ key: o.id + step, done: stepDone(o, step) });
@@ -773,17 +774,20 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     const fin = tt?.stage === 'final';
     const accepted = !!o.rmDone.tradein;
     if (tt && !fin) {
-      primary = { label: 'Waiting for the Trade-In team', run: () => {}, block: tt.stage === 'disputed' ? 'Dispute is with the Trade-In team for re-valuation' : 'The Trade-In team has not set the final price yet' };
+      primary = { label: 'Waiting for the Trade-In team', run: () => {}, block: tt.stage === 'disputed' ? 'Price conflict is with the Trade-In team for re-valuation' : 'The Trade-In team has not set the final price yet' };
       alts = [{ label: 'Nudge the Trade-In team', run: () => onComms('Nudged the Trade-In team on the trade-in valuation') }];
     } else if (fin && !accepted) {
-      primary = { label: `Customer accepted ${money(ti!.value)}`, run: () => act((x, at) => acceptTradeIn(x, at)) };
+      const conflict = tiAns.agree === 'Not agree';
+      primary = conflict
+        ? { label: 'Raise price conflict to Trade-In team', run: () => act((x, at) => disputeTradeIn(x, { reason: tiAns.reason, expected: Number(tiAns.expected) || undefined, note: tiAns.note.trim() }, at)), block: !tiAns.reason ? 'Pick why the customer does not agree' : tiAns.note.trim().length < 5 ? 'Add a note for the Trade-In team' : '' }
+        : { label: `Confirm customer agreed ${money(ti!.value)}`, run: () => act((x, at) => acceptTradeIn(x, at)), block: tiAns.agree ? '' : 'Ask the customer and pick Agree or Not agree' };
       alts = [{ label: `Call ${first} about the final price`, run: () => onComms(`Call to ${o.customer.phone}: trade-in final price ${money(ti!.value)} discussed`) }];
     }
-    fx = fin && !accepted ? ['Record the customer agreed the final trade-in price', 'Balance payment can go ahead at the new outstanding amount', 'Contract & invoice flag for regenerate if the price changed'] : tt && !fin ? ['The Trade-In team inspects the car and sets the final price', 'It reflects here and in the price breakup automatically'] : [];
+    fx = fin && !accepted ? (tiAns.agree === 'Not agree' ? ['Trade-In ticket moves to Price conflict with your reason, expected price and note', 'The Trade-In team re-values and sets a revised price; it reflects here', 'Balance payment stays blocked until the customer agrees'] : ['Record the customer agreed the final trade-in price', 'Balance payment can go ahead at the new outstanding amount', 'Contract & invoice flag for regenerate if the price changed']) : tt && !fin ? ['The Trade-In team inspects the car and sets the final price', 'It reflects here and in the price breakup automatically'] : [];
     const v = tt?.fields || {};
     const shown = (fd: (typeof TI_FIELDS)[number]) => { const x = v[fd.key]; return fd.type === 'check' ? (x ? 'Uploaded' : 'Not uploaded') : x ? (fd.key === 'tiValue' ? money(Number(x)) : String(x)) : '—'; };
     const status = !tt ? '' : tt.stage === 'requested' ? `Valuation requested ${fmtAge(Date.now() - tt.enteredAt)} ago. The Trade-In team inspects the car and sets the final price; it shows here as soon as they do.`
-      : tt.stage === 'disputed' ? `Customer disputed: “${v.disputeNote}”. Back with the Trade-In team for re-valuation (${fmtAge(Date.now() - tt.enteredAt)} ago).`
+      : tt.stage === 'disputed' ? `Price conflict raised ${fmtAge(Date.now() - tt.enteredAt)} ago: ${ti?.dispute || v.disputeNote}. With the Trade-In team for re-valuation.`
       : accepted ? `Customer accepted ${money(ti!.value)} ${fmtAge(Date.now() - o.rmDone.tradein!)} ago. Balance payment can go ahead.`
       : `Final price ${money(ti!.value)} set by the Trade-In team${ti!.offered && ti!.offered !== ti!.value ? ` (${money(ti!.offered)} at booking, ${ti!.value < ti!.offered ? '−' : '+'}${money(Math.abs(ti!.value - ti!.offered))})` : ''}. Confirm it with the customer.`;
     body = (
@@ -798,10 +802,28 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
         <div className="cs" style={{ marginTop: 8 }}>*If modified by the Trade-In team, changes are stored in the B2C database only, not in C2B.</div>
         {fin && !accepted && (
           <>
-            <div className="sec-h">Customer disputes the price?</div>
-            <div className="crn-in">
-              <label className="tf" style={{ flex: '1 1 320px' }}><span>Reason from the customer</span><input className="tf-in" value={tiDispute} placeholder="e.g. Has the full service history; expects $5,500" onChange={(e) => setTiDispute(e.target.value)} /></label>
-              <button className="btn danger" disabled={tiDispute.trim().length < 5} onClick={() => { act((x, at) => disputeTradeIn(x, tiDispute.trim(), at)); setTiDispute(''); }}>Raise dispute to Trade-In team</button>
+            <div className="sec-h">Customer decision on the trade-in price</div>
+            <div className="ti-ans">
+              <label className="tf"><span>Customer agrees with {money(ti!.value)}? <i className="req">*</i></span>
+                <div className="tf-sel"><select value={tiAns.agree} onChange={(e) => setTiAns({ ...tiAns, agree: e.target.value })}>
+                  <option value="">Select</option><option>Agree</option><option>Not agree</option>
+                </select></div>
+              </label>
+              {tiAns.agree === 'Not agree' && (
+                <>
+                  <label className="tf"><span>Reason <i className="req">*</i></span>
+                    <div className="tf-sel"><select value={tiAns.reason} onChange={(e) => setTiAns({ ...tiAns, reason: e.target.value })}>
+                      <option value="">Select reason</option>{TI_CONFLICT_REASONS.map((r) => <option key={r}>{r}</option>)}
+                    </select></div>
+                  </label>
+                  <label className="tf"><span>Customer expected price (AUD) <i className="opt">optional</i></span>
+                    <input className="tf-in" type="number" min="0" placeholder={`e.g. ${ti!.value + 500}`} value={tiAns.expected} onChange={(e) => setTiAns({ ...tiAns, expected: e.target.value })} />
+                  </label>
+                  <label className="tf full"><span>Note for the Trade-In team <i className="req">*</i></span>
+                    <textarea className="tf-in sf-ta" placeholder="e.g. Has the full service history and new tyres; another dealer offered more" value={tiAns.note} onChange={(e) => setTiAns({ ...tiAns, note: e.target.value })} />
+                  </label>
+                </>
+              )}
             </div>
           </>
         )}

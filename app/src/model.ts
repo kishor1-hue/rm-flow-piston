@@ -345,9 +345,9 @@ export const JOURNEYS: Record<JourneyId, JourneyDef> = {
         next: [{ label: 'Finalise trade-in price', to: 'final', tone: 'primary', requires: TI_REQUIRED }],
       },
       {
-        key: 'disputed', label: 'Customer disputed', hs: 'Disputed · re-valuation', kind: 'fail', slaHours: 24,
-        guide: 'The customer disputed the final price (see the dispute note from the RM). Re-check the car and set the final price again.',
-        fields: [f('disputeNote', 'Dispute note from the RM', 'textarea'), ...TI_FIELDS],
+        key: 'disputed', label: 'Price conflict', hs: 'Conflict · re-valuation', kind: 'fail', slaHours: 24,
+        guide: 'The customer did not agree to the final price. Read the reason, expected price and note from the RM, re-check the car and set the final price again.',
+        fields: [f('disputeReason', 'Conflict reason (from the RM)', 'text'), f('disputeExpected', 'Customer expected price ($)', 'text'), f('disputeNote', 'Note from the RM', 'textarea'), ...TI_FIELDS],
         next: [{ label: 'Finalise revised price', to: 'final', tone: 'primary', requires: TI_REQUIRED }],
       },
       { key: 'final', label: 'Final price set', hs: 'Final price confirmed', kind: 'done' },

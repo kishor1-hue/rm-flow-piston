@@ -103,7 +103,7 @@ export interface Order {
   promises: string[];
   tradeInBooking?: { car: string; value: number }; // what the customer entered at booking
   tradeInOpted?: 'Yes' | 'No'; // RM confirms in step 1
-  tradeIn?: { car: string; value: number; offered: number; finalAt?: number; dispute?: string }; // only when opted in
+  tradeIn?: { car: string; value: number; offered: number; finalAt?: number; dispute?: string; expected?: number }; // only when opted in
   deliveryMode: 'Pick up' | 'Home delivery';
   interstate: boolean;
   depositAt: number;
@@ -441,14 +441,17 @@ export function acceptTradeIn(o: Order, at: number) {
   o.tradeIn.dispute = undefined;
   log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text: `Customer accepted the final trade-in price ${money(o.tradeIn.value)} (${o.tradeIn.car})` });
 }
-export function disputeTradeIn(o: Order, reason: string, at: number) {
+export const TI_CONFLICT_REASONS = ['Expects a higher price', 'Service history / extras not valued', 'Better offer elsewhere', 'Changed mind · keeping the car', 'Changed mind · selling privately', 'Other'];
+export function disputeTradeIn(o: Order, c: { reason: string; expected?: number; note: string }, at: number) {
   const t = task(o, 'tradein');
   if (!t || !o.tradeIn) return;
-  t.stage = 'disputed'; t.enteredAt = at; t.fields.disputeNote = reason;
-  o.tradeIn.dispute = reason; o.tradeIn.finalAt = undefined;
+  const summary = `${c.reason}${c.expected ? ` · customer expects ${money(c.expected)}` : ''} · ${c.note}`;
+  t.stage = 'disputed'; t.enteredAt = at;
+  t.fields.disputeReason = c.reason; t.fields.disputeExpected = c.expected ? String(c.expected) : ''; t.fields.disputeNote = c.note;
+  o.tradeIn.dispute = summary; o.tradeIn.expected = c.expected; o.tradeIn.finalAt = undefined;
   delete o.rmDone.tradein;
-  log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text: `Customer disputed the trade-in price: ${reason}` });
-  log(o, { at, who: 'Workflow', kind: 'rule', rule: 'R-15', text: 'Trade-in request sent back to the Trade-In team for re-valuation; balance payment waits for an agreed price' });
+  log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text: `Customer did not agree to the trade-in price ${money(o.tradeIn.value)}: ${summary}` });
+  log(o, { at, who: 'Workflow', kind: 'rule', rule: 'R-15', text: 'Trade-in price conflict raised to the Trade-In team; balance payment waits for an agreed price' });
 }
 export function setDeliveryMode(o: Order, mode: Order['deliveryMode'], at: number) {
   o.deliveryMode = mode;

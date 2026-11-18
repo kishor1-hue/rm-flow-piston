@@ -653,3 +653,7 @@ tr.vas-x small { color: var(--mute); }
 .lnk-btn:hover { text-decoration: underline; }
 .lnk-btn:disabled { color: var(--mute-2); cursor: not-allowed; text-decoration: none; }
 .tf-help { font-size: 12px; color: var(--mute); }
+
+/* Trade-in customer decision */
+.ti-ans { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; max-width: 760px; }
+.ti-ans .full { grid-column: 1 / -1; }
