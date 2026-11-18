@@ -42,7 +42,7 @@ const STEPS: { key: RmStep; label: string; where: string }[] = [
   { key: 'promise', label: 'Sales promise', where: 'Deal property sales_promise_' },
   { key: 'tradein', label: 'Trade-in', where: 'Trade-In team owns the price · HubSpot 02c' },
   { key: 'final', label: 'Contract & invoice', where: 'Customer documents ticket · HubSpot 02' },
-  { key: 'balance', label: 'Balance payment', where: 'Finance ticket · HubSpot 01a' },
+  { key: 'balance', label: 'Balance payment', where: '' },
   { key: 'delivery', label: 'Book delivery', where: 'B2C admin · Book delivery slots' },
 ];
 
@@ -763,7 +763,6 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     }
     body = (
       <>
-        <TicketStatus o={o} t={p} title={`${o.id}-${first} (Finance Ticket)`} onMove={(to) => moveTask(p, to)} />
         <div className="tbox">
           <table className="tl-t"><thead><tr><th>Payment type</th><th>Reference</th><th>Amount</th><th>When</th><th>By</th></tr></thead>
             <tbody>{o.payments.map((x, i) => <tr key={i}><td>{x.type}</td><td className="mono">{x.ref}</td><td>{money(x.amount)}</td><td>{fmtAge(Date.now() - x.at)} ago</td><td>{x.by}</td></tr>)}</tbody>
@@ -846,7 +845,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
       </div>
       <div className="ws-body">
         <div className="ws-h">{idx + 1}. {cur.label}{done && <span className="chip c-green">Done</span>}{cancelled && <span className="chip c-red">Sale cancelled</span>}</div>
-        <div className="ws-guide">{cur.where}</div>
+        {cur.where && <div className="ws-guide">{cur.where}</div>}
         {body}
         {fx.length > 0 && <Fx items={fx} />}
         {primary?.block && <div className="blocked">{primary.block}</div>}
