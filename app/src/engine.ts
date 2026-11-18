@@ -110,7 +110,7 @@ export interface Order {
   gfrAt?: number; // HubSpot deal gfr_date
   paymentMethod: 'Bank transfer' | 'Card' | 'Stripe';
   proofUrl?: string; // deal proof_of_payment_link
-  payments: { type: string; amount: number; at: number; ref: string; by: string; method?: string }[];
+  payments: { type: string; amount: number; at: number; ref: string; by: string; method?: string; txn?: string; receivedBy?: string; remarks?: string }[];
   discount?: { type: 'Flat' | 'Percent'; value: number; amount: number; reason: string; status: 'Applied' | 'Awaiting approval'; till?: string };
   shipping: number; // deal shipping_charges (home delivery)
   rmDone: Partial<Record<'promise' | 'discount' | 'tradein' | 'vas' | 'final', number>>;
@@ -332,9 +332,11 @@ export function outstanding(o: Order) {
 
 // ---------- RM actions (B2C admin panel today) ----------
 // TW01a: a new payment on a cash ticket moves it to Final remittance or Awaiting additional deposit.
-export function recordPayment(o: Order, amount: number, ref: string, by: PersonaId, at: number) {
-  o.payments.push({ type: o.payments.length === 1 ? 'FIRST_INSTALMENT' : 'BALANCE', amount, at, ref, by: who(by) });
-  log(o, { at, who: who(by), kind: 'stage', persona: by, text: `Payment of ${money(amount)} recorded (${ref})` });
+export type PaymentEntry = { method?: string; txn?: string; paidAt?: number; receivedBy?: string; remarks?: string };
+export function recordPayment(o: Order, amount: number, ref: string, by: PersonaId, at: number, e: PaymentEntry = {}) {
+  const { paidAt, ...rest } = e;
+  o.payments.push({ type: o.payments.length === 1 ? 'FIRST_INSTALMENT' : 'BALANCE', amount, at: paidAt ?? at, ref, by: who(by), ...rest });
+  log(o, { at, who: who(by), kind: 'stage', persona: by, text: `Payment of ${money(amount)} recorded (${e.method ? e.method + ' · ' : ''}${ref})` });
   const p = task(o, 'payment');
   if (!p || !['instalment', 'short'].includes(p.stage)) return;
   const left = outstanding(o);

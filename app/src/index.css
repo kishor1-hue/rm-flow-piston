@@ -647,3 +647,9 @@ tr.vas-x small { color: var(--mute); }
 @media (max-width: 860px) { .ti-form { grid-template-columns: 1fr; } }
 .pb tr.pb-grp td { font-weight: 600; }
 .pb.fb td:last-child, .pb.fb th:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Add payment entry */
+.lnk-btn { border: 0; background: none; color: var(--lv); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; padding: 4px 2px; }
+.lnk-btn:hover { text-decoration: underline; }
+.lnk-btn:disabled { color: var(--mute-2); cursor: not-allowed; text-decoration: none; }
+.tf-help { font-size: 12px; color: var(--mute); }

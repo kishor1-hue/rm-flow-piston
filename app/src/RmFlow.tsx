@@ -4,7 +4,7 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { JOURNEYS, PERSONAS, TI_FIELDS, type TransitionDef } from './model';
 import {
   acceptTradeIn, applyDiscount, approveDiscount, disputeTradeIn, setTradeInOpted, availableNext, canMove, DISCOUNT_LIMIT, fmtAge, gatesClear, gateStatus,
-  addVas, CRN_NAME, dap, DOC_LABEL, docOutdated, regenerateDoc, requestCrn, verifyDl, dlSuggest, receiveCrn, remindCrn, requestReupload, setDlCheck, type DlCheck, type DocKey, govtCharges, isDone, missingFields, money, removeVas, VAS_CATALOG, vasTotal, type PlanType, orderTotal, outstanding, recordPayment, setDeliveryMode, skipStep, stageDef, task, type Order, type Task,
+  addVas, CRN_NAME, dap, DOC_LABEL, docOutdated, regenerateDoc, requestCrn, verifyDl, dlSuggest, receiveCrn, remindCrn, requestReupload, setDlCheck, type DlCheck, type DocKey, govtCharges, isDone, missingFields, money, removeVas, VAS_CATALOG, vasTotal, type PlanType, orderTotal, outstanding, recordPayment, type PaymentEntry, setDeliveryMode, skipStep, stageDef, task, type Order, type Task,
 } from './engine';
 import { Field } from './TaskCard';
 import { dlPng, proofPng } from './proof';
@@ -258,6 +258,68 @@ function AddVasModal({ o, onClose, onAdd }: { o: Order; onClose: () => void; onA
   );
 }
 
+const PAYMENT_SOURCES = ['Bank transfer', 'Card', 'Stripe', 'Finance payout', 'Trade-in settlement'];
+const RECEIVED_BY = ['Finance team', 'RM', 'Customer (self-serve)'];
+function AddPaymentModal({ due, onClose, onAdd }: { due: number; onClose: () => void; onAdd: (amount: number, ref: string, e: PaymentEntry) => void }) {
+  const [f, setF] = useState({ amount: due ? String(due) : '', source: '', txn: '', ref: '', date: new Date().toISOString().slice(0, 10), receivedBy: '', remarks: '' });
+  const [tried, setTried] = useState(false);
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
+  const errs: Partial<Record<keyof typeof f, string>> = {};
+  if (!(Number(f.amount) > 0)) errs.amount = 'Enter the amount received';
+  else if (Number(f.amount) > due) errs.amount = `More than the outstanding ${money(due)}`;
+  if (!f.source) errs.source = 'Select the payment source';
+  if (!f.txn.trim()) errs.txn = 'Enter the transaction ID';
+  if (!f.ref.trim()) errs.ref = 'Enter the reference ID';
+  if (!f.date) errs.date = 'Pick the payment date';
+  const err = (k: keyof typeof f) => tried && errs[k] ? <div className="dc-err">{errs[k]}</div> : null;
+  const submit = () => {
+    setTried(true);
+    if (Object.keys(errs).length) return;
+    onAdd(Number(f.amount), f.ref.trim(), { method: f.source, txn: f.txn.trim(), paidAt: f.date === new Date().toISOString().slice(0, 10) ? undefined : new Date(f.date + 'T12:00:00').getTime(), receivedBy: f.receivedBy || undefined, remarks: f.remarks.trim() || undefined });
+  };
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal" role="dialog" aria-label="Add payment entry" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-h"><div><b>Add payment entry</b><small>Complete the form to continue.</small></div><button className="lb-x sm" aria-label="Close" onClick={onClose}>×</button></div>
+        <div className="modal-b">
+          <div className="modal-card">
+            <label className="tf"><span>Amount (AUD) <i className="req">*</i></span>
+              <input className={'tf-in' + (tried && errs.amount ? ' bad' : '')} type="number" min="0" placeholder="e.g. 5000" value={f.amount} onChange={set('amount')} />{err('amount')}
+            </label>
+            <label className="tf"><span>Payment Source <i className="req">*</i></span>
+              <div className="tf-sel"><select className={tried && errs.source ? 'bad' : ''} value={f.source} onChange={set('source')}>
+                <option value="">Select payment source</option>
+                {PAYMENT_SOURCES.map((x) => <option key={x}>{x}</option>)}
+              </select></div>{err('source')}
+            </label>
+            <label className="tf"><span>Transaction ID <i className="req">*</i></span>
+              <input className={'tf-in' + (tried && errs.txn ? ' bad' : '')} placeholder="e.g. TXN-12345" value={f.txn} onChange={set('txn')} />{err('txn')}
+            </label>
+            <label className="tf"><span>Reference ID <i className="req">*</i></span>
+              <input className={'tf-in' + (tried && errs.ref ? ' bad' : '')} placeholder="e.g. PO-67890" value={f.ref} onChange={set('ref')} />{err('ref')}
+            </label>
+            <label className="tf"><span>Payment date <i className="req">*</i></span>
+              <input className={'tf-in' + (tried && errs.date ? ' bad' : '')} type="date" value={f.date} max={new Date().toISOString().slice(0, 10)} onChange={set('date')} />
+              <small className="tf-help">Use ISO format expected by API</small>{err('date')}
+            </label>
+            <label className="tf"><span>Received by</span>
+              <div className="tf-sel"><select value={f.receivedBy} onChange={set('receivedBy')}>
+                <option value="">Select</option>
+                {RECEIVED_BY.map((x) => <option key={x}>{x}</option>)}
+              </select></div>
+              <small className="tf-help">Not sent to the current API</small>
+            </label>
+            <label className="tf"><span>Remarks</span>
+              <textarea className="tf-in sf-ta" placeholder="Internal note" value={f.remarks} onChange={set('remarks')} />
+            </label>
+            <button className="btn primary wide" onClick={submit}>Add Payment entry</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StageFields({ t, onField }: { t: Task; onField: (k: string, v: string | boolean) => void }) {
   const s = stageDef(t);
   if (!s.fields?.length || s.kind === 'done') return null;
@@ -294,13 +356,13 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   const [sp, setSp] = useState<FormValues>(() => o.promiseChecklist || prefillChecklist(o.promises));
   const [spTried, setSpTried] = useState(false);
   const [vasModal, setVasModal] = useState(false);
+  const [payModal, setPayModal] = useState(false);
   const [vasRow, setVasRow] = useState('');
   const [crn, setCrn] = useState('');
   const [dlZoom, setDlZoom] = useState<'' | 'front' | 'back'>('');
   useEffect(() => { setCrn(''); }, [o.id]);
   useEffect(() => { setSp(o.promiseChecklist || prefillChecklist(o.promises)); setSpTried(false); }, [o.id]);
   const [tiDispute, setTiDispute] = useState('');
-  const [pay, setPay] = useState({ amount: '', ref: '' });
   useEffect(() => { setMenu(false); }, [step, o.id]);
   // Finishing a step moves the RM on to the next open one.
   const wasDone = useRef({ key: o.id + step, done: stepDone(o, step) });
@@ -310,7 +372,6 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     if (same && d && !wasDone.current.done) { const n = SV.slice(SV.findIndex((s) => s.key === step) + 1).find((s) => !stepDone(o, s.key)); if (n) setStep(n.key); }
     wasDone.current = { key: o.id + step, done: d };
   });
-  useEffect(() => { setPay({ amount: String(outstanding(o) || ''), ref: '' }); }, [o.id, step, o.payments.length, o.discount?.status, o.tradeIn?.value]);
 
   const p = task(o, 'payment')!;
   const c = task(o, 'contract')!;
@@ -753,7 +814,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     if (p.stage === 'deposit') {
       primary = { label: 'Record payment', run: () => {}, block: 'Confirm the first instalment in step 1 first' };
     } else if (['instalment', 'short'].includes(p.stage)) {
-      primary = { label: `Record ${money(Number(pay.amount || 0))} payment`, run: () => act((x, at) => recordPayment(x, Number(pay.amount), pay.ref || 'Bank transfer', 'rm', at)), block: o.tradeInOpted === 'Yes' && !o.rmDone.tradein ? 'Trade-in final price not agreed with the customer yet' : !o.rmDone.final ? 'Check the contract & invoice first (previous step)' : !Number(pay.amount) ? 'Enter the amount received' : '' };
+      primary = { label: 'Add payment entry', run: () => setPayModal(true), block: o.tradeInOpted === 'Yes' && !o.rmDone.tradein ? 'Trade-in final price not agreed with the customer yet' : !o.rmDone.final ? 'Check the contract & invoice first (previous step)' : '' };
       alts = [{ label: `Call ${first} to chase the balance`, run: () => onComms(`Call to ${o.customer.phone}: balance of ${money(left)} discussed`) }, ...taskActions(p).alts];
       fx = ['Add the payment to the ledger', `Fully paid → Finance ticket to Final remittance received, else Awaiting additional deposit (HubSpot TW01a)`];
     } else {
@@ -763,18 +824,14 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     }
     body = (
       <>
+        <div className="vas-h"><div className="sec-h" style={{ margin: 0 }}>Payments</div>{['instalment', 'short'].includes(p.stage) && <button className="lnk-btn" disabled={!!primary?.block} title={primary?.block || ''} onClick={() => setPayModal(true)}>Add payment entry</button>}</div>
         <div className="tbox">
-          <table className="tl-t"><thead><tr><th>Payment type</th><th>Reference</th><th>Amount</th><th>When</th><th>By</th></tr></thead>
-            <tbody>{o.payments.map((x, i) => <tr key={i}><td>{x.type}</td><td className="mono">{x.ref}</td><td>{money(x.amount)}</td><td>{fmtAge(Date.now() - x.at)} ago</td><td>{x.by}</td></tr>)}</tbody>
+          <table className="tl-t"><thead><tr><th>Payment type</th><th>Source</th><th>Transaction ID</th><th>Reference</th><th>Amount</th><th>Paid</th><th>By</th></tr></thead>
+            <tbody>{o.payments.map((x, i) => <tr key={i} title={x.remarks || ''}><td>{x.type}</td><td>{x.method || '—'}</td><td className="mono">{x.txn || '—'}</td><td className="mono">{x.ref}</td><td>{money(x.amount)}</td><td>{fmtAge(Date.now() - x.at)} ago</td><td>{x.receivedBy || x.by}</td></tr>)}</tbody>
           </table>
         </div>
         <FinalBreakup o={o} />
-        {['instalment', 'short'].includes(p.stage) && (
-          <div className="fields" style={{ maxWidth: 520 }}>
-            <div className="fld"><label>Amount received ($) *</label><input type="number" value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} /></div>
-            <div className="fld"><label>Bank reference</label><input type="text" value={pay.ref} placeholder="e.g. NAB 77821" onChange={(e) => setPay({ ...pay, ref: e.target.value })} /></div>
-          </div>
-        )}
+        {payModal && <AddPaymentModal due={left} onClose={() => setPayModal(false)} onAdd={(amount, ref, e) => { setPayModal(false); act((x, at) => recordPayment(x, amount, ref, 'rm', at, e)); }} />}
         {p.stage === 'final' && <StageFields t={p} onField={(k, v) => onField(p.id, k, v)} />}
         {isDone(p) && <div className="statusline">Finance GFD. Fully paid.</div>}
       </>
