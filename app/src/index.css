@@ -638,3 +638,5 @@ tr.vas-x small { color: var(--mute); }
 .crn-steps .on i { background: var(--lv); color: #fff; }
 .crn-steps .done i { background: var(--green); color: #fff; }
 @media (max-width: 860px) { .dl-imgs { grid-template-columns: 1fr 1fr; } .dl-data { grid-column: 1 / -1; } }
+.crn-in { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.crn-in .tf { flex: 0 1 300px; }

@@ -49,7 +49,8 @@ const STEPS: { key: RmStep; label: string; where: string }[] = [
 export function stepDone(o: Order, k: RmStep): boolean {
   const pay = task(o, 'payment');
   if (k === 'deposit') return !!pay && pay.stage !== 'deposit';
-  if (k === 'docs') return o.dl.status === 'Verified';
+  // Licence step ends once checked; when a customer ID is needed it is collected later, in Contract & invoice.
+  if (k === 'docs') return ['Verified', 'ID requested', 'ID received'].includes(o.dl.status);
   if (k === 'final') return !!o.rmDone.final;
   if (k === 'vas') return !!o.rmDone.vas;
   if (k === 'promise') return !!o.rmDone.promise;
@@ -348,9 +349,34 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     );
   }
 
+  // Customer ID request tracker: raised in Customer documents, filled in Contract & invoice.
+  const crnName = CRN_NAME[o.customer.state];
+  const crnOk = /^\d{6,10}$/.test(crn.trim());
+  const crnStage = o.dl.status === 'ID requested' ? 1 : o.dl.status === 'ID received' ? 2 : o.dl.status === 'Verified' ? 3 : 0;
+  const crnTracker = (editable: boolean) => (
+    <div className="crn">
+      <div className="crn-steps">{['Requested', 'Awaiting customer', 'Received', 'Verified'].map((st, k) => { const done = (k < crnStage && o.dl.status !== 'Uploaded') || o.dl.status === 'Verified'; return <div key={st} className={done ? 'done' : k === crnStage && o.dl.status !== 'Uploaded' ? 'on' : ''}><i>{done ? '✓' : k + 1}</i>{st}</div>; })}</div>
+      {o.dl.status === 'Uploaded' || o.dl.status === 'Re-upload requested' ? (
+        <div className="cs">{o.dl.state} licence, registering in {o.customer.state}: the customer needs a {crnName} from the {o.customer.state} road authority. Raise the request and LeadVerse sends them a portal link with the steps.</div>
+      ) : o.dl.status === 'ID requested' ? (
+        <>
+          <div className="cs">Requested {fmtAge(Date.now() - (o.dl.requestedAt || Date.now()))} ago · {o.dl.reminders || 0} reminder{o.dl.reminders === 1 ? '' : 's'} sent · SLA 24h. {editable ? 'The customer can submit it on the portal, or enter it here if they share it on a call.' : 'Collected in step 8, Contract & invoice, before delivery is booked.'}</div>
+          {editable && (
+            <div className="crn-in">
+              <label className="tf"><span>{crnName} <i className="req">*</i></span><input className="tf-in" inputMode="numeric" value={crn} placeholder="e.g. 123456789" onChange={(e) => setCrn(e.target.value)} /></label>
+              <button className="btn primary" disabled={!crnOk} title={crnOk ? '' : 'Enter 6–10 digits'} onClick={() => act((x, at) => { receiveCrn(x, crn.trim(), 'Agent (phone)', at); verifyDl(x, at); })}>Save &amp; verify</button>
+              <button className="btn" onClick={() => act((x, at) => remindCrn(x, at))}>Send reminder</button>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="cs">Received: <b>{o.dl.crn}</b> via {o.dl.crnVia}{o.dl.status === 'Verified' ? ' · passed to the Registration team' : ''}.</div>
+      )}
+    </div>
+  );
+
   if (step === 'docs') {
     const dl = o.dl;
-    const crnName = CRN_NAME[o.customer.state];
     const sug = dlSuggest(o);
     const ans = dl.checks || {};
     const QS: [DlCheck, string, string][] = [
@@ -362,18 +388,9 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     const answered = QS.every(([k]) => ans[k]);
     const reupload = (['name', 'valid', 'clear'] as DlCheck[]).filter((k) => ans[k] === 'No');
     const stateNo = ans.state === 'No';
-    const open = dl.status !== 'Verified';
-    const crnOk = /^\d{6,10}$/.test(crn.trim());
+    const open = dl.status === 'Uploaded' || dl.status === 'Re-upload requested';
     if (open) {
-      if (dl.status === 'ID requested') {
-        primary = { label: `Record ${crnName}`, run: () => act((x, at) => receiveCrn(x, crn.trim(), 'Agent (phone)', at)), block: !crnOk ? `Enter the ${crnName} (6–10 digits)` : '' };
-        alts = [
-          { label: 'Send reminder (SMS + email)', run: () => act((x, at) => remindCrn(x, at)) },
-          { label: 'Demo: customer shares it on the portal', run: () => act((x, at) => receiveCrn(x, String(100000000 + (x.id.charCodeAt(3) * 7919) % 899999999), 'Customer portal', at)) },
-        ];
-      } else if (dl.status === 'ID received') {
-        primary = { label: "Verify driver's licence", run: () => act((x, at) => verifyDl(x, at)) };
-      } else if (!answered) {
+      if (!answered) {
         primary = { label: "Verify driver's licence", run: () => {}, block: 'Answer all four checks first' };
         alts = [{ label: 'Accept the system suggestions', run: () => act((x) => QS.forEach(([k]) => setDlCheck(x, k, sug[k]))) }];
       } else if (reupload.length) {
@@ -384,16 +401,13 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
         primary = { label: "Verify driver's licence", run: () => act((x, at) => verifyDl(x, at)) };
       }
     }
-    fx = !open ? [] : dl.status === 'ID requested' ? ['Save the number on the order and move the request to Received', 'The customer can also submit it from the portal link; the request closes on its own', 'Auto-reminder every 24h; escalate to the RM lead after 3 reminders']
-      : stateNo && !reupload.length && dl.status !== 'ID received' ? [`Raise a customer ID request: SMS + email with a portal link and how to get a ${crnName} from the ${o.customer.state} road authority`, 'Track it on the order (requested, reminders, received) with a 24h SLA', 'Registration cannot be lodged until it arrives; it is on the delivery critical path']
+    fx = !open ? [] : stateNo && !reupload.length ? [`Raise a customer ID request: SMS + email with a portal link and how to get a ${crnName} from the ${o.customer.state} road authority`, 'Track it on the order (requested, reminders, received) with a 24h SLA', 'This step is done; the number is collected in Contract & invoice before delivery is booked']
       : reupload.length ? ['Send the customer a portal link to upload the licence again, with the reason', 'Checks reset when the new images arrive'] : ["Mark the licence verified", 'Registration team can lodge the transfer', 'Sync to OMS'];
     const yn = (k: DlCheck) => (
       <div className="yn" role="radiogroup">
-        {(['Yes', 'No'] as const).map((v) => <button key={v} role="radio" aria-checked={ans[k] === v} disabled={!open || dl.status === 'ID requested' || dl.status === 'ID received'} className={ans[k] === v ? 'on ' + v.toLowerCase() : ''} onClick={() => act((x) => setDlCheck(x, k, v))}>{v}</button>)}
+        {(['Yes', 'No'] as const).map((v) => <button key={v} role="radio" aria-checked={ans[k] === v} disabled={!open} className={ans[k] === v ? 'on ' + v.toLowerCase() : ''} onClick={() => act((x) => setDlCheck(x, k, v))}>{v}</button>)}
       </div>
     );
-    const STAGES = ['Requested', 'Awaiting customer', 'Received', 'Verified'];
-    const at = dl.status === 'ID requested' ? 1 : dl.status === 'ID received' ? 2 : dl.status === 'Verified' ? 3 : 0;
     body = (
       <>
         <div className="sec-h">Driver's licence <span className="hs">uploaded by the customer on the portal · click to enlarge</span></div>
@@ -422,21 +436,10 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
         {(stateNo || dl.crn) && !reupload.length && (
           <>
             <div className="sec-h">Customer ID request · {crnName}</div>
-            <div className="crn">
-              <div className="crn-steps">{STAGES.map((st, k) => { const done = k < at || dl.status === 'Verified'; return <div key={st} className={done ? 'done' : k === at && dl.status !== 'Uploaded' ? 'on' : ''}><i>{done ? '✓' : k + 1}</i>{st}</div>; })}</div>
-              {dl.status === 'Uploaded' || (dl.status !== 'ID requested' && !dl.crn) ? (
-                <div className="cs">{dl.state} licence, registering in {o.customer.state}: the customer needs a {crnName} from the {o.customer.state} road authority. Raise the request and LeadVerse sends them a portal link with the steps.</div>
-              ) : dl.status === 'ID requested' ? (
-                <>
-                  <div className="cs">Requested {fmtAge(Date.now() - (dl.requestedAt || Date.now()))} ago · {dl.reminders || 0} reminder{dl.reminders === 1 ? '' : 's'} sent · SLA 24h. The customer can submit it on the portal, or enter it here if they share it on a call.</div>
-                  <label className="tf" style={{ maxWidth: 360 }}><span>{crnName}</span><input className="tf-in" inputMode="numeric" value={crn} placeholder="e.g. 123456789" onChange={(e) => setCrn(e.target.value)} /></label>
-                </>
-              ) : (
-                <div className="cs">Received: <b>{dl.crn}</b> via {dl.crnVia}.</div>
-              )}
-            </div>
+            {crnTracker(false)}
           </>
         )}
+        {dl.status === 'ID requested' && <div className="statusline">Licence checked. Customer ID request raised; the RM collects the {crnName} in step 8, Contract &amp; invoice.</div>}
         {dl.status === 'Verified' && <div className="statusline">Licence verified{dl.crn ? ` · ${crnName} ${dl.crn} passed to Registration` : ''}.</div>}
       </>
     );
@@ -445,12 +448,20 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   if (step === 'final') {
     const signed = isDone(c);
     const stale = (['contract', 'invoice'] as DocKey[]).filter((k) => docOutdated(o, k));
+    const idPending = o.dl.status === 'ID requested' || o.dl.status === 'ID received';
     if (!signed) { const a = taskActions(c); primary = a.primary; alts = a.alts; }
+    else if (idPending) {
+      primary = { label: `Save & verify ${crnName}`, run: () => act((x, at) => { receiveCrn(x, crn.trim(), 'Agent (phone)', at); verifyDl(x, at); }), block: !crnOk ? `Enter the ${crnName} (6–10 digits)` : '' };
+      alts = [
+        { label: 'Send reminder (SMS + email)', run: () => act((x, at) => remindCrn(x, at)) },
+        { label: 'Demo: customer shares it on the portal', run: () => act((x, at) => { receiveCrn(x, String(100000000 + (x.id.charCodeAt(3) * 7919) % 899999999), 'Customer portal', at); verifyDl(x, at); }) },
+      ];
+    }
     else if (stale.length) primary = { label: `Regenerate ${stale.map((k) => DOC_LABEL[k].split(' (')[0].toLowerCase()).join(' & ')}`, run: () => act((x, at) => stale.forEach((k) => regenerateDoc(x, k, at))) };
     else if (!o.rmDone.final) primary = { label: 'Confirm contract & invoice', run: () => act((x, at) => skipStep(x, 'final', 'Contract signed and tax invoice checked before delivery booking', at)) };
     const n0 = availableNext(o, c)[0];
     fx = !signed ? (n0?.to === 'signed' ? ['Stamp contract signed date (HubSpot TW02a)', 'Contract gate ✓ for delivery', 'Sync to OMS so the customer app can open the slot'] : n0?.to === 'sent' ? ['Send the DocuSign envelope with the tax invoice', 'Deal contract status → Contract not signed (TW02b)', 'Nudge the customer after 48h'] : [])
-      : stale.length ? ['Call the regenerate API for each outdated document', 'A regenerated contract goes out as a new DocuSign envelope'] : !o.rmDone.final ? ['Contract & invoice gate ✓ — delivery can be booked'] : [];
+      : idPending ? [`Save the ${crnName} on the order and mark the licence verified`, 'Pass it to the Registration team so the transfer can be lodged', 'Registration is on the delivery critical path'] : stale.length ? ['Call the regenerate API for each outdated document', 'A regenerated contract goes out as a new DocuSign envelope'] : !o.rmDone.final ? ['Contract & invoice gate ✓ — delivery can be booked'] : [];
     const check = (ok: boolean, label: string, note: string, k?: DocKey) => (
       <div className={'chk' + (ok ? ' ok' : ' bad')}>
         <i>{ok ? '✓' : '!'}</i><div><b>{label}</b><small>{note}</small></div>
@@ -466,7 +477,9 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
           {check(!docOutdated(o, 'contract'), `Contract up to date · v${o.docs.contract.v}`, docOutdated(o, 'contract') ? 'Order changed after it was generated (discount, VAS or trade-in)' : `Generated ${fmtAge(Date.now() - o.docs.contract.at)} ago`, 'contract')}
           {check(!docOutdated(o, 'invoice'), `Tax invoice correct · v${o.docs.invoice.v}`, docOutdated(o, 'invoice') ? `Invoice total is out of date; order total is now ${money(orderTotal(o))}` : `Total ${money(orderTotal(o))} · generated ${fmtAge(Date.now() - o.docs.invoice.at)} ago`, 'invoice')}
           {o.tradeIn && check(['form4', 'review', 'signed'].includes(c.stage) || signed, 'Trade-in Form 4', 'Required for the trade-in')}
+          {(idPending || o.dl.crn) && check(o.dl.status === 'Verified', `Customer ID · ${crnName}`, o.dl.status === 'Verified' ? `${o.dl.crn} · received via ${o.dl.crnVia}` : `${o.dl.state} licence, registering in ${o.customer.state} · requested ${fmtAge(Date.now() - (o.dl.requestedAt || Date.now()))} ago`)}
         </div>
+        {(idPending || o.dl.crn) && (<><div className="sec-h">Customer ID · {crnName}</div>{crnTracker(true)}</>)}
         {!signed && <StageFields t={c} onField={(k, v) => onField(c.id, k, v)} />}
         {o.rmDone.final && <div className="statusline">Checked {fmtAge(Date.now() - o.rmDone.final)} ago. Delivery can be booked.</div>}
       </>
