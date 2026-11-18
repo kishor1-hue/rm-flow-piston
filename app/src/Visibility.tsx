@@ -21,23 +21,6 @@ const Chip = ({ tone, label }: { tone: Tone; label?: string }) => <span classNam
 const val = (v?: string | boolean) => (v === true ? 'Yes' : v ? String(v) : '—');
 const fmtDate = (ms: number) => new Date(ms).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
 
-// Stage tracker: the pipeline's happy path, with a failed stage shown in place when the ticket sits in one.
-function Tracker({ j, t, path }: { j: JourneyId; t?: Task; path: string[] }) {
-  const stages = JOURNEYS[j].stages;
-  const cur = t ? stages.find((s) => s.key === t.stage) : undefined;
-  const keys = cur && !path.includes(cur.key) ? [...path.slice(0, -1), cur.key, path[path.length - 1]] : path;
-  const at = t ? keys.indexOf(t.stage) : -1;
-  return (
-    <ol className="vz-track">
-      {keys.map((k, i) => {
-        const s = stages.find((x) => x.key === k)!;
-        const st = !t ? '' : i < at ? 'done' : i === at ? (s.kind === 'fail' ? 'fail' : s.kind === 'done' ? 'done' : 'on') : '';
-        return <li key={k} className={st}><i>{st === 'done' ? '✓' : st === 'fail' ? '!' : i + 1}</i><span>{s.hs.split(' / ')[0]}</span></li>;
-      })}
-    </ol>
-  );
-}
-
 function KV({ items }: { items: [string, React.ReactNode, string?][] }) {
   return (
     <dl className="vz-kv">
@@ -46,19 +29,18 @@ function KV({ items }: { items: [string, React.ReactNode, string?][] }) {
   );
 }
 
-// One pipeline section: coloured rail, pipeline name on the left, the data on the right.
-function Section({ c, j, title, hs, tone, t, label, children }: { c: string; j: JourneyId; title: string; hs: string; tone: Tone; t?: Task; label?: string; children: React.ReactNode }) {
+// One pipeline section: header (name + what it covers on the left, status + time in stage on the right), then the data.
+function Section({ c, j, title, desc, tone, t, label, children }: { c: string; j: JourneyId; title: string; desc: string; tone: Tone; t?: Task; label?: string; children: React.ReactNode }) {
   const owner = PERSONAS[JOURNEYS[j].persona];
   return (
     <section className={'vz-sec ' + c}>
-      <aside className="vz-side">
-        <span className="vz-eyebrow">Pipeline</span>
-        <h3>{title}</h3>
-        <span className="vz-hs">HubSpot · {hs}</span>
-        <Chip tone={tone} label={label} />
-        <div className="vz-owner"><b>{owner.label}</b><span>{owner.user}</span></div>
-        {t && <div className="vz-age">{isDone(t) ? `Closed ${fmtAge(Date.now() - t.enteredAt)} ago` : `In stage ${fmtAge(Date.now() - t.enteredAt)}`}</div>}
-      </aside>
+      <header className="vz-head">
+        <div><h3>{title}</h3><p>{desc} · {owner.user}</p></div>
+        <div className="vz-chips">
+          <Chip tone={tone} label={label} />
+          {t && <span className="chip c-grey">{isDone(t) ? `Closed ${fmtAge(Date.now() - t.enteredAt)} ago` : `In stage ${fmtAge(Date.now() - t.enteredAt)}`}</span>}
+        </div>
+      </header>
       <div className="vz-main">{children}</div>
     </section>
   );
@@ -88,7 +70,6 @@ export function PrepStatus({ o }: { o: Order }) {
     ...vasTasks.map((t) => ({ j: 'vas' as JourneyId, name: `VAS · ${t.item}`, pipe: '05b_VAS Operations', t })),
   ];
 
-  const regoPath = o.customer.state === 'VIC' ? ['todo', 'vic', 'complete'] : o.customer.state === 'QLD' ? ['todo', 'qld', 'complete'] : ['todo', 'complete'];
   const rf = rwc?.fields || {};
   const ff = ref?.fields || {};
   const gf = rego?.fields || {};
@@ -108,14 +89,12 @@ export function PrepStatus({ o }: { o: Order }) {
       </div>
 
       <section className="vz-sec vz-c-pipe">
-        <aside className="vz-side">
-          <span className="vz-eyebrow">Overview</span>
-          <h3>Pipelines on this order</h3>
-          <span className="vz-hs">{rows.length} HubSpot tickets</span>
-          <div className="vz-mini">
+        <header className="vz-head">
+          <div><h3>Pipelines on this order</h3><p>{rows.length} HubSpot tickets across Finance, Contracts and Ops</p></div>
+          <div className="vz-chips">
             {(['done', 'live', 'late', 'fail', 'wait'] as Tone[]).map((tn) => { const n = rows.filter((r) => toneOf(r.t) === tn).length; return n ? <span key={tn} className={'chip ' + TONE_CHIP[tn]}>{n} {tn === 'late' ? 'over SLA' : toneText(tn).toLowerCase()}</span> : null; })}
           </div>
-        </aside>
+        </header>
         <div className="vz-main">
           <div className="vz-tbl"><table>
             <thead><tr><th>Pipeline</th><th>Current stage</th><th>Owner</th><th>In stage</th><th>Status</th></tr></thead>
@@ -135,11 +114,11 @@ export function PrepStatus({ o }: { o: Order }) {
         </div>
       </section>
 
-      <Section c="vz-c-rwc" j="rwc" title="Roadworthy (RWC)" hs="05_Refurb Pre-GFD · RWC stages" tone={toneOf(rwc)} t={rwc}>
-        <Tracker j="rwc" t={rwc} path={['awaiting', 'wip', 'complete']} />
+      <Section c="vz-c-rwc" j="rwc" title="Roadworthy (RWC)" desc="Roadworthy inspection and any mechanical or panel rework · HubSpot 05_Refurb Pre-GFD" tone={toneOf(rwc)} t={rwc}>
         {!rwc ? <Empty>No RWC ticket yet. DW02 creates it at Awaiting Refurb when the GFR date is stamped{o.interstate ? ', or TW03d when the car arrives interstate' : ''}.</Empty> : (
           <>
             <KV items={[
+              ['HubSpot stage', stageDef(rwc).hs, 'hs_pipeline_stage'],
               ['RWC status', rwc.stage === 'complete' ? 'Passed' : rwc.stage === 'fail' ? 'Failed' : stageDef(rwc).label, 'rwc_status'],
               ['RWC serial number', val(rf.rwcNumber), 'rwc_serial_number'],
               ['RWC issue date', rwc.stage === 'complete' ? fmtDate(rwc.enteredAt) : '—', 'rwc_issue_date'],
@@ -162,8 +141,7 @@ export function PrepStatus({ o }: { o: Order }) {
         )}
       </Section>
 
-      <Section c="vz-c-ref" j="refurb" title="Refurb & detail" hs="05_Refurb Pre-GFD · detail + QC stages" tone={toneOf(ref)} t={ref}>
-        <Tracker j="refurb" t={ref} path={['detail', 'qc', 'gfd']} />
+      <Section c="vz-c-ref" j="refurb" title="Refurb & detail" desc="Sales promises, detailing and pre-GFD QC · HubSpot 05_Refurb Pre-GFD" tone={toneOf(ref)} t={ref}>
         {!ref ? <Empty>Refurb starts once the RWC passes (TW04 moves the ticket to RWC Complete - To be Detailed).</Empty> : (
           <>
             <div className="vz-tbl"><table>
@@ -174,6 +152,7 @@ export function PrepStatus({ o }: { o: Order }) {
               ))}</tbody>
             </table></div>
             <KV items={[
+              ['HubSpot stage', stageDef(ref).hs, 'hs_pipeline_stage'],
               ['Refurbishment notes', val(ff.workLog), 'refurbishment_notes'],
               ['Sales refurb promise', o.promises.join(' · ') || '—', 'sales_refurb_promise'],
               ['Passed pre-refurb GFD inspection', ff.qcPassed || ref.stage === 'gfd' ? 'Yes' : 'No', 'refurb_gfd_confirmation'],
@@ -183,7 +162,7 @@ export function PrepStatus({ o }: { o: Order }) {
         )}
       </Section>
 
-      <Section c="vz-c-vas" j="vas" title="VAS operations" hs="05b_VAS Operations · one ticket per product" label={!installable.length ? 'Nothing to install' : undefined} tone={!installable.length ? 'wait' : vasTasks.length && vasTasks.every(isDone) && vasTasks.length >= installable.length ? 'done' : vasTasks.some((t) => toneOf(t) === 'late') ? 'late' : vasTasks.length ? 'live' : 'wait'}>
+      <Section c="vz-c-vas" j="vas" title="VAS operations" desc="Tinting, coating and accessory installs, one ticket per product · HubSpot 05b_VAS Operations" label={!installable.length ? 'Nothing to install' : undefined} tone={!installable.length ? 'wait' : vasTasks.length && vasTasks.every(isDone) && vasTasks.length >= installable.length ? 'done' : vasTasks.some((t) => toneOf(t) === 'late') ? 'late' : vasTasks.length ? 'live' : 'wait'}>
         {!installable.length ? <Empty>No tinting, coating or accessory on this order. Warranty and insurance products don't need an install.</Empty> : (
           <div className="vz-tbl"><table>
             <thead><tr><th>Product</th><th>Plan type</th><th>HubSpot stage</th><th>Install date</th><th>Updated</th><th>Status</th></tr></thead>
@@ -207,10 +186,10 @@ export function PrepStatus({ o }: { o: Order }) {
         <div className="vz-foot">VAS never blocks the delivery slot; anything not installed in time moves to Post delivery - Schmick.</div>
       </Section>
 
-      <Section c="vz-c-rego" j="rego" title="Registration" hs="06_Registration" tone={toneOf(rego)} t={rego}>
-        <Tracker j="rego" t={rego} path={regoPath} />
+      <Section c="vz-c-rego" j="rego" title="Registration" desc="Registration in the customer’s state · HubSpot 06_Registration" tone={toneOf(rego)} t={rego}>
         {!rego ? <Empty>Registration starts once the RWC passes (TW04 creates the 06 ticket, owner by delivery state).</Empty> : null}
         <KV items={[
+          ...(rego ? [['HubSpot stage', stageDef(rego).hs, 'hs_pipeline_stage'] as [string, string, string]] : []),
           ['Registration state', o.customer.state],
           ['Registration number', val(gf.regoNumber), 'registration_number'],
           ...(o.customer.state === 'VIC' ? [['Check digit', val(gf.checkDigit), 'check_digit'] as [string, string, string]] : []),
