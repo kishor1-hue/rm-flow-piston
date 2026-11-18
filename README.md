@@ -7,6 +7,7 @@ RM · Refurb (sales promise, detail, QC, VAS ops) · Registration & RWC · Deliv
   - `src/model.ts` — journeys, stages (each mapped to its HubSpot pipeline/stage), trigger rules, slot gates
   - `src/engine.ts` — order state + workflow engine (stage change → rules → tasks for other personas)
   - `src/seed.ts` — invented demo orders, replayed through the engine
+- `RM-FLOW-DESIGN.md` — design spec: every RM step, popups, tables, rules, money, colours, demo orders
 - `RM-MAPPING.md` — the HubSpot → LeadVerse mapping and the live-data evidence behind each rule
 
 Live demo (private, share from the page): https://claude.ai/artifact/VQHgVrJq5HpnWamUgacp5X — `rm-flow.html` is the single-file build of `app/`.
