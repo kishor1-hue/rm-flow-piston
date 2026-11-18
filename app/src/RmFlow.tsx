@@ -172,6 +172,45 @@ function DapBreakup({ o }: { o: Order }) {
   );
 }
 
+// Final payment price breakup: what makes up the DAP and what is still to collect.
+function FinalBreakup({ o }: { o: Order }) {
+  const g = govtCharges(o);
+  const disc = o.discount?.status === 'Applied' ? o.discount.amount : 0;
+  const paid = o.payments.reduce((a, x) => a + x.amount, 0);
+  const due = outstanding(o);
+  const row = (k: string, v: number | null, cls = '', neg = false) => (
+    <tr key={k} className={cls}><td>{k}</td><td>{v == null ? '—' : (neg && v ? '− ' : '') + money(v)}</td></tr>
+  );
+  return (
+    <>
+      <div className="sec-h">Price breakup</div>
+      <div className="tbox">
+        <table className="tl-t pb fb">
+          <thead><tr><th>Item</th><th>Amount</th></tr></thead>
+          <tbody>
+            {row('DAP', dap(o), 'pb-sum')}
+            {row('EGC', o.price)}
+            {row('Govt charges', g.total, 'pb-grp')}
+            {row('Motor vehicle duty', g.duty, 'pb-subrow')}
+            {row(`${g.months} months registration`, g.rego, 'pb-subrow')}
+            {row('CTP insurance', g.ctp, 'pb-subrow')}
+            {row('Transfer fee', g.transfer, 'pb-subrow')}
+            {row('Handling fee', g.handling, 'pb-subrow')}
+            {row('Interstate charges', 0)}
+            {row('Home delivery charges', o.shipping)}
+            {row('Discount value', disc || null, '', true)}
+            {row('VAS', vasTotal(o))}
+            {o.tradeIn && row('Trade-in value', o.tradeIn.value, '', true)}
+            {row('Total amount to be paid', orderTotal(o), 'pb-sum')}
+            {row('Total amount paid', paid)}
+            {row('Outstanding balance', due, 'pb-due' + (due ? '' : ' paid'))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
 function RegistrationDetails({ o }: { o: Order }) {
   const g = govtCharges(o);
   const rows: [string, string][] = [['Registration Opted', 'Yes'], ['Opted Registration Months', `${g.months} months`], ['Total Charges', money(g.total)], ['Stamp duty', money(g.duty)], ['CTP', money(g.ctp)], ['Transfer fee', money(g.transfer)], ['Registration fee', money(g.rego)], ['Number Plates type', g.plates], ['Handling fee', money(g.handling)]];
@@ -730,11 +769,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
             <tbody>{o.payments.map((x, i) => <tr key={i}><td>{x.type}</td><td className="mono">{x.ref}</td><td>{money(x.amount)}</td><td>{fmtAge(Date.now() - x.at)} ago</td><td>{x.by}</td></tr>)}</tbody>
           </table>
         </div>
-        <div className="calc" style={{ maxWidth: 360 }}>
-          <div><span>Total payable</span><b>{money(orderTotal(o))}</b></div>
-          <div><span>Paid so far</span><b>{money(o.payments.reduce((a, x) => a + x.amount, 0))}</b></div>
-          <div className="tot"><span>Outstanding</span><b>{money(left)}</b></div>
-        </div>
+        <FinalBreakup o={o} />
         {['instalment', 'short'].includes(p.stage) && (
           <div className="fields" style={{ maxWidth: 520 }}>
             <div className="fld"><label>Amount received ($) *</label><input type="number" value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} /></div>
