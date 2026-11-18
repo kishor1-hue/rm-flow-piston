@@ -31,7 +31,7 @@ function prefillChecklist(promises: string[]): FormValues {
   return v;
 }
 
-export type RmStep = 'deposit' | 'discount' | 'vas' | 'docs' | 'promise' | 'tradein' | 'balance' | 'final' | 'delivery';
+export type RmStep = 'deposit' | 'discount' | 'vas' | 'docs' | 'promise' | 'tradein' | 'final' | 'balance' | 'delivery';
 type Act = (fn: (o: Order, at: number) => void) => void;
 
 const STEPS: { key: RmStep; label: string; where: string }[] = [
@@ -41,8 +41,8 @@ const STEPS: { key: RmStep; label: string; where: string }[] = [
   { key: 'docs', label: 'Customer documents', where: "Driver's licence · registration state" },
   { key: 'promise', label: 'Sales promise', where: 'Deal property sales_promise_' },
   { key: 'tradein', label: 'Trade-in', where: 'Trade-In team owns the price · HubSpot 02c' },
-  { key: 'balance', label: 'Balance payment', where: 'Finance ticket · HubSpot 01a' },
   { key: 'final', label: 'Contract & invoice', where: 'Customer documents ticket · HubSpot 02' },
+  { key: 'balance', label: 'Balance payment', where: 'Finance ticket · HubSpot 01a' },
   { key: 'delivery', label: 'Book delivery', where: 'B2C admin · Book delivery slots' },
 ];
 
@@ -374,7 +374,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
         <div className="cs">{o.dl.state} licence, registering in {o.customer.state}: the customer needs a {crnName} from the {o.customer.state} road authority. Raise the request and LeadVerse sends them a portal link with the steps.</div>
       ) : o.dl.status === 'ID requested' ? (
         <>
-          <div className="cs">Requested {fmtAge(Date.now() - (o.dl.requestedAt || Date.now()))} ago · {o.dl.reminders || 0} reminder{o.dl.reminders === 1 ? '' : 's'} sent · SLA 24h. {editable ? 'The customer can submit it on the portal, or enter it here if they share it on a call.' : 'Collected in step 8, Contract & invoice, before delivery is booked.'}</div>
+          <div className="cs">Requested {fmtAge(Date.now() - (o.dl.requestedAt || Date.now()))} ago · {o.dl.reminders || 0} reminder{o.dl.reminders === 1 ? '' : 's'} sent · SLA 24h. {editable ? 'The customer can submit it on the portal, or enter it here if they share it on a call.' : 'Collected in Contract & invoice, before the final payment.'}</div>
           {editable && (
             <div className="crn-in">
               <label className="tf"><span>{crnName} <i className="req">*</i></span><input className="tf-in" inputMode="numeric" value={crn} placeholder="e.g. 123456789" onChange={(e) => setCrn(e.target.value)} /></label>
@@ -415,7 +415,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
         primary = { label: "Verify driver's licence", run: () => act((x, at) => verifyDl(x, at)) };
       }
     }
-    fx = !open ? [] : stateNo && !reupload.length ? [`Raise a customer ID request: SMS + email with a portal link and how to get a ${crnName} from the ${o.customer.state} road authority`, 'Track it on the order (requested, reminders, received) with a 24h SLA', 'This step is done; the number is collected in Contract & invoice before delivery is booked']
+    fx = !open ? [] : stateNo && !reupload.length ? [`Raise a customer ID request: SMS + email with a portal link and how to get a ${crnName} from the ${o.customer.state} road authority`, 'Track it on the order (requested, reminders, received) with a 24h SLA', 'This step is done; the number is collected in Contract & invoice, before the final payment']
       : reupload.length ? ['Send the customer a portal link to upload the licence again, with the reason', 'Checks reset when the new images arrive'] : ["Mark the licence verified", 'Registration team can lodge the transfer', 'Sync to OMS'];
     const yn = (k: DlCheck) => (
       <div className="yn" role="radiogroup">
@@ -453,7 +453,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
             {crnTracker(false)}
           </>
         )}
-        {dl.status === 'ID requested' && <div className="statusline">Licence checked. Customer ID request raised; the RM collects the {crnName} in step 8, Contract &amp; invoice.</div>}
+        {dl.status === 'ID requested' && <div className="statusline">Licence checked. Customer ID request raised; the RM collects the {crnName} in Contract &amp; invoice, before the final payment.</div>}
         {dl.status === 'Verified' && <div className="statusline">Licence verified{dl.crn ? ` · ${crnName} ${dl.crn} passed to Registration` : ''}.</div>}
       </>
     );
@@ -472,10 +472,10 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
       ];
     }
     else if (stale.length) primary = { label: `Regenerate ${stale.map((k) => DOC_LABEL[k].split(' (')[0].toLowerCase()).join(' & ')}`, run: () => act((x, at) => stale.forEach((k) => regenerateDoc(x, k, at))) };
-    else if (!o.rmDone.final) primary = { label: 'Confirm contract & invoice', run: () => act((x, at) => skipStep(x, 'final', 'Contract signed and tax invoice checked before delivery booking', at)) };
+    else if (!o.rmDone.final) primary = { label: 'Confirm contract & invoice', run: () => act((x, at) => skipStep(x, 'final', 'Contract signed and tax invoice checked before the final payment', at)) };
     const n0 = availableNext(o, c)[0];
     fx = !signed ? (n0?.to === 'signed' ? ['Stamp contract signed date (HubSpot TW02a)', 'Contract gate ✓ for delivery', 'Sync to OMS so the customer app can open the slot'] : n0?.to === 'sent' ? ['Send the DocuSign envelope with the tax invoice', 'Deal contract status → Contract not signed (TW02b)', 'Nudge the customer after 48h'] : [])
-      : idPending ? [`Save the ${crnName} on the order and mark the licence verified`, 'Pass it to the Registration team so the transfer can be lodged', 'Registration is on the delivery critical path'] : stale.length ? ['Call the regenerate API for each outdated document', 'A regenerated contract goes out as a new DocuSign envelope'] : !o.rmDone.final ? ['Contract & invoice gate ✓ — delivery can be booked'] : [];
+      : idPending ? [`Save the ${crnName} on the order and mark the licence verified`, 'Pass it to the Registration team so the transfer can be lodged', 'Registration is on the delivery critical path'] : stale.length ? ['Call the regenerate API for each outdated document', 'A regenerated contract goes out as a new DocuSign envelope'] : !o.rmDone.final ? ['Contract & invoice gate ✓ — the final payment can be taken'] : [];
     const check = (ok: boolean, label: string, note: string, k?: DocKey) => (
       <div className={'chk' + (ok ? ' ok' : ' bad')}>
         <i>{ok ? '✓' : '!'}</i><div><b>{label}</b><small>{note}</small></div>
@@ -485,7 +485,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     body = (
       <>
         <TicketStatus o={o} t={c} title={`${o.id}-${o.apptId}(Customer Documents)`} onMove={(to) => moveTask(c, to)} />
-        <div className="sec-h">Before booking delivery</div>
+        <div className="sec-h">Before the final payment</div>
         <div className="chks">
           {check(signed, 'Contract signed', signed ? 'DocuSign envelope completed' : ['sent', 'form4', 'review'].includes(c.stage) ? 'Sent · waiting for the customer to sign' : 'Not sent yet')}
           {check(!docOutdated(o, 'contract'), `Contract up to date · v${o.docs.contract.v}`, docOutdated(o, 'contract') ? 'Order changed after it was generated (discount, VAS or trade-in)' : `Generated ${fmtAge(Date.now() - o.docs.contract.at)} ago`, 'contract')}
@@ -495,7 +495,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
         </div>
         {(idPending || o.dl.crn) && (<><div className="sec-h">Customer ID · {crnName}</div>{crnTracker(true)}</>)}
         {!signed && <StageFields t={c} onField={(k, v) => onField(c.id, k, v)} />}
-        {o.rmDone.final && <div className="statusline">Checked {fmtAge(Date.now() - o.rmDone.final)} ago. Delivery can be booked.</div>}
+        {o.rmDone.final && <div className="statusline">Checked {fmtAge(Date.now() - o.rmDone.final)} ago. Ready for the final payment.</div>}
       </>
     );
   }
@@ -714,7 +714,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     if (p.stage === 'deposit') {
       primary = { label: 'Record payment', run: () => {}, block: 'Confirm the first instalment in step 1 first' };
     } else if (['instalment', 'short'].includes(p.stage)) {
-      primary = { label: `Record ${money(Number(pay.amount || 0))} payment`, run: () => act((x, at) => recordPayment(x, Number(pay.amount), pay.ref || 'Bank transfer', 'rm', at)), block: o.tradeInOpted === 'Yes' && !o.rmDone.tradein ? 'Trade-in final price not agreed with the customer yet' : !Number(pay.amount) ? 'Enter the amount received' : '' };
+      primary = { label: `Record ${money(Number(pay.amount || 0))} payment`, run: () => act((x, at) => recordPayment(x, Number(pay.amount), pay.ref || 'Bank transfer', 'rm', at)), block: o.tradeInOpted === 'Yes' && !o.rmDone.tradein ? 'Trade-in final price not agreed with the customer yet' : !o.rmDone.final ? 'Check the contract & invoice first (previous step)' : !Number(pay.amount) ? 'Enter the amount received' : '' };
       alts = [{ label: `Call ${first} to chase the balance`, run: () => onComms(`Call to ${o.customer.phone}: balance of ${money(left)} discussed`) }, ...taskActions(p).alts];
       fx = ['Add the payment to the ledger', `Fully paid → Finance ticket to Final remittance received, else Awaiting additional deposit (HubSpot TW01a)`];
     } else {
