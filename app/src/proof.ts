@@ -69,3 +69,55 @@ export function proofPng(o: Order): string {
   cache.set(key, url);
   return url;
 }
+
+// Dummy driver's licence (front / back) for the licence check. Generic layout with a SAMPLE mark, not a real state design.
+const TINT: Record<string, [string, string]> = { NSW: ['#DCEBFA', '#1E4E8C'], VIC: ['#E3F1E6', '#1F6B3A'], QLD: ['#F6E7EF', '#7A1F4E'] };
+export function dlPng(o: Order, side: 'front' | 'back'): string {
+  const key = `dl-${o.id}-${o.dl.state}-${side}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const W = 428, H = 270, S = 2;
+  const cv = document.createElement('canvas');
+  cv.width = W * S; cv.height = H * S;
+  const g = cv.getContext('2d')!;
+  g.scale(S, S);
+  const font = (w: number, px: number) => `${w} ${px}px -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
+  const text = (s: string, x: number, y: number, f: string, c: string, align: CanvasTextAlign = 'left') => { g.font = f; g.fillStyle = c; g.textAlign = align; g.fillText(s, x, y); };
+  const [bg, ink] = TINT[o.dl.state] || TINT.NSW;
+  // photo backdrop: the card lying on a desk
+  g.fillStyle = '#C9CDD3'; g.fillRect(0, 0, W, H);
+  g.save(); g.shadowColor = 'rgba(0,0,0,.25)'; g.shadowBlur = 14; g.shadowOffsetY = 4;
+  g.beginPath(); g.roundRect(14, 14, W - 28, H - 28, 14); g.fillStyle = bg; g.fill(); g.restore();
+  g.save(); g.beginPath(); g.roundRect(14, 14, W - 28, H - 28, 14); g.clip();
+  for (let i = -H; i < W; i += 14) { g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 1; g.beginPath(); g.moveTo(i, 14); g.lineTo(i + H, H); g.stroke(); }
+  g.fillStyle = ink; g.fillRect(14, 14, W - 28, 34);
+  const [first, ...rest] = o.customer.name.toUpperCase().split(' ');
+  if (side === 'front') {
+    text(`${o.dl.state} · DRIVER LICENCE`, 28, 37, font(700, 14), '#fff');
+    text('CLASS C', W - 28, 37, font(600, 11), '#fff', 'right');
+    // photo
+    g.fillStyle = '#B8C0CC'; g.beginPath(); g.roundRect(28, 62, 96, 122, 8); g.fill();
+    g.fillStyle = '#8E98A8'; g.beginPath(); g.arc(76, 108, 22, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.ellipse(76, 172, 38, 26, 0, Math.PI, 0); g.fill();
+    const row = (k: string, v: string, y: number) => { text(k, 138, y, font(500, 9), '#5B6475'); text(v, 138, y + 15, font(700, 14), '#111'); };
+    row('NAME', `${rest.join(' ')} ${first}`.trim(), 70);
+    row('ADDRESS', `${(3 + o.id.charCodeAt(4) % 90)} SAMPLE ST, ${o.customer.suburb.toUpperCase()}`, 104);
+    row('LICENCE NO.', o.dl.number, 138);
+    text('EXPIRY', 300, 138, font(500, 9), '#5B6475'); text(o.dl.expiry, 300, 153, font(700, 14), '#111');
+    text('DATE OF BIRTH', 138, 182, font(500, 9), '#5B6475'); text(`1${o.id.charCodeAt(3) % 10}/0${1 + (o.id.charCodeAt(4) % 9)}/199${o.id.charCodeAt(5) % 10}`, 138, 197, font(700, 14), '#111');
+    g.strokeStyle = '#333'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(30, 222); g.bezierCurveTo(50, 200, 70, 236, 92, 214); g.bezierCurveTo(104, 204, 112, 226, 124, 216); g.stroke();
+    text('signature', 28, 238, font(400, 8), '#5B6475');
+  } else {
+    text('CONDITIONS / ENDORSEMENTS', 28, 37, font(700, 12), '#fff');
+    text('Conditions: NIL', 28, 72, font(600, 13), '#111');
+    text(`Card number: ${o.dl.state}${o.dl.number.split('').reverse().join('')}`, 28, 94, font(500, 12), '#333');
+    text(`Issued in ${o.dl.state}. Change of address must be reported to the issuing state.`, 28, 114, font(400, 10), '#444');
+    for (let x = 28, k = 0; x < W - 40; x += 3, k++) { const w = (o.dl.number.charCodeAt(k % 8) + k) % 3 === 0 ? 2 : 1; g.fillStyle = '#111'; g.fillRect(x, 140, w, 60); }
+    text(`${o.dl.state}-${o.dl.number}-${o.dl.expiry.replace('/', '')}`, W / 2, 218, font(500, 10), '#333', 'center');
+  }
+  g.restore();
+  g.save(); g.translate(W / 2, H / 2); g.rotate(-0.32); text('SAMPLE', 0, 16, font(800, 52), 'rgba(200,30,30,.16)', 'center'); g.restore();
+  const url = cv.toDataURL('image/png');
+  cache.set(key, url);
+  return url;
+}

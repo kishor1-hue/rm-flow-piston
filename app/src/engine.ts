@@ -71,12 +71,23 @@ export const vasTotal = (o: Order) => o.vas.filter((v) => v.status !== 'CANCELLE
 // DAP (drive-away price) = EGC + government charges + delivery fees + VAS + accessories.
 export const dap = (o: Order) => o.price + govtCharges(o).total + o.shipping + vasTotal(o);
 
-export interface DriverLicence { number: string; state: State; expiry: string; status: 'Uploaded' | 'ID requested' | 'Verified'; crn?: string }
+export type DlCheck = 'name' | 'valid' | 'clear' | 'state';
+export interface DriverLicence {
+  number: string; state: State; expiry: string; crn?: string;
+  status: 'Uploaded' | 'Re-upload requested' | 'ID requested' | 'ID received' | 'Verified';
+  checks?: Partial<Record<DlCheck, 'Yes' | 'No'>>; // agent's answers
+  requestedAt?: number; reminders?: number; crnVia?: 'Customer portal' | 'Agent (phone)';
+}
+// What the system reads off the licence (OCR + order data) — shown to the agent as a suggestion, the agent decides.
+export function dlSuggest(o: Order): Record<DlCheck, 'Yes' | 'No'> {
+  const [mm, yyyy] = o.dl.expiry.split('/').map(Number);
+  return { name: 'Yes', valid: new Date(yyyy, mm, 0).getTime() > Date.now() + 30 * 864e5 ? 'Yes' : 'No', clear: 'Yes', state: o.dl.state === o.customer.state ? 'Yes' : 'No' };
+}
 export type DocKey = 'contract' | 'invoice';
 export const DOC_LABEL: Record<DocKey, string> = { contract: 'Contract of sale (DocuSign)', invoice: 'Tax invoice' };
 // Customer reference number the state road authority issues; needed to register a car in a state other than the one on the licence.
 export const CRN_NAME: Record<State, string> = { VIC: 'VicRoads customer number', NSW: 'Service NSW customer number', QLD: 'TMR customer reference number' };
-export const needsCrn = (o: Order) => o.dl.state !== o.customer.state;
+export const needsCrn = (o: Order) => o.dl.checks?.state ? o.dl.checks.state === 'No' : o.dl.state !== o.customer.state;
 export const docOutdated = (o: Order, k: DocKey) => o.changedAt > o.docs[k].at;
 
 export interface Order {
@@ -359,14 +370,31 @@ export function regenerateDoc(o: Order, k: DocKey, at: number) {
   if (k === 'contract') log(o, { at, who: 'Workflow', kind: 'comms', text: 'New DocuSign envelope sent; the customer signs the updated contract' });
 }
 // Driver's licence check (Customer documents step).
+export function setDlCheck(o: Order, k: DlCheck, v: 'Yes' | 'No') {
+  o.dl.checks = { ...(o.dl.checks || {}), [k]: v };
+}
 export function requestCrn(o: Order, at: number) {
   o.dl.status = 'ID requested';
-  log(o, { at, who: who('rm'), kind: 'comms', text: `Asked ${o.customer.name.split(' ')[0]} for a ${CRN_NAME[o.customer.state]}: ${o.dl.state} licence, registering in ${o.customer.state}` });
+  o.dl.requestedAt = at;
+  o.dl.reminders = 0;
+  log(o, { at, who: who('rm'), kind: 'comms', text: `Customer ID request raised: ${CRN_NAME[o.customer.state]} (${o.dl.state} licence, registering in ${o.customer.state}). SMS + email with a portal link sent` });
 }
-export function verifyDl(o: Order, crn: string | undefined, at: number) {
+export function remindCrn(o: Order, at: number) {
+  o.dl.reminders = (o.dl.reminders || 0) + 1;
+  log(o, { at, who: who('rm'), kind: 'comms', text: `Reminder ${o.dl.reminders} sent: please share your ${CRN_NAME[o.customer.state]}` });
+}
+export function receiveCrn(o: Order, crn: string, via: 'Customer portal' | 'Agent (phone)', at: number) {
+  o.dl.crn = crn; o.dl.crnVia = via; o.dl.status = 'ID received';
+  log(o, { at, who: via === 'Customer portal' ? o.customer.name : who('rm'), kind: 'stage', text: `${CRN_NAME[o.customer.state]} ${crn} received (${via})` });
+}
+export function requestReupload(o: Order, reasons: string[], at: number) {
+  o.dl.status = 'Re-upload requested';
+  log(o, { at, who: who('rm'), kind: 'comms', text: `Asked the customer to re-upload the driver's licence: ${reasons.join(', ')}` });
+}
+export function verifyDl(o: Order, at: number) {
   o.dl.status = 'Verified';
-  if (crn) o.dl.crn = crn;
-  log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text: `Driver's licence verified (${o.dl.state} ${o.dl.number})${crn ? ` · ${CRN_NAME[o.customer.state]} ${crn}` : ''}` });
+  log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text: `Driver's licence verified (${o.dl.state} ${o.dl.number})${o.dl.crn ? ` · ${CRN_NAME[o.customer.state]} ${o.dl.crn}` : ''}` });
+  if (o.dl.crn) log(o, { at, who: 'Workflow', kind: 'rule', text: `Customer ID passed to the Registration team for the ${o.customer.state} transfer` });
 }
 export function skipStep(o: Order, step: 'promise' | 'discount' | 'tradein' | 'vas' | 'final', text: string, at: number) {
   o.rmDone[step] = at;

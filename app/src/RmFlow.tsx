@@ -4,10 +4,10 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { JOURNEYS, PERSONAS, type TransitionDef } from './model';
 import {
   applyDiscount, approveDiscount, availableNext, canMove, DISCOUNT_LIMIT, finaliseTradeIn, fmtAge, gatesClear, gateStatus,
-  addVas, CRN_NAME, dap, DOC_LABEL, docOutdated, needsCrn, regenerateDoc, requestCrn, verifyDl, type DocKey, govtCharges, isDone, missingFields, money, removeVas, VAS_CATALOG, vasTotal, type PlanType, orderTotal, outstanding, recordPayment, setDeliveryMode, skipStep, stageDef, task, type Order, type Task,
+  addVas, CRN_NAME, dap, DOC_LABEL, docOutdated, regenerateDoc, requestCrn, verifyDl, dlSuggest, receiveCrn, remindCrn, requestReupload, setDlCheck, type DlCheck, type DocKey, govtCharges, isDone, missingFields, money, removeVas, VAS_CATALOG, vasTotal, type PlanType, orderTotal, outstanding, recordPayment, setDeliveryMode, skipStep, stageDef, task, type Order, type Task,
 } from './engine';
 import { Field } from './TaskCard';
-import { proofPng } from './proof';
+import { dlPng, proofPng } from './proof';
 import { payload, SchemaForm, validate, type FormValues, type SchemaPage } from './SchemaForm';
 import spForm from './forms/sales-promise-checklist.json';
 
@@ -253,6 +253,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   const [vasModal, setVasModal] = useState(false);
   const [vasRow, setVasRow] = useState('');
   const [crn, setCrn] = useState('');
+  const [dlZoom, setDlZoom] = useState<'' | 'front' | 'back'>('');
   useEffect(() => { setCrn(''); }, [o.id]);
   useEffect(() => { setSp(o.promiseChecklist || prefillChecklist(o.promises)); setSpTried(false); }, [o.id]);
   const [tiv, setTiv] = useState(String(o.tradeIn?.value || ''));
@@ -348,37 +349,95 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   }
 
   if (step === 'docs') {
-    const mism = needsCrn(o);
-    const crnName = CRN_NAME[o.customer.state];
     const dl = o.dl;
-    if (dl.status !== 'Verified') {
-      if (!mism) primary = { label: "Verify driver's licence", run: () => act((x, at) => verifyDl(x, undefined, at)) };
-      else if (dl.status === 'Uploaded') {
-        primary = { label: `Request ${crnName}`, run: () => act((x, at) => requestCrn(x, at)) };
-        alts = [{ label: `Customer already shared it, enter ${crnName}`, run: () => act((x, at) => requestCrn(x, at)) }];
+    const crnName = CRN_NAME[o.customer.state];
+    const sug = dlSuggest(o);
+    const ans = dl.checks || {};
+    const QS: [DlCheck, string, string][] = [
+      ['name', 'Name on the licence matches the buyer', o.customer.name],
+      ['valid', 'Licence is valid (not expired, not expiring within 30 days)', `Expires ${dl.expiry}`],
+      ['clear', 'Front and back are clear and readable', 'Both sides uploaded'],
+      ['state', 'Licence state matches the car registration state', `Licence ${dl.state} · registering in ${o.customer.state}`],
+    ];
+    const answered = QS.every(([k]) => ans[k]);
+    const reupload = (['name', 'valid', 'clear'] as DlCheck[]).filter((k) => ans[k] === 'No');
+    const stateNo = ans.state === 'No';
+    const open = dl.status !== 'Verified';
+    const crnOk = /^\d{6,10}$/.test(crn.trim());
+    if (open) {
+      if (dl.status === 'ID requested') {
+        primary = { label: `Record ${crnName}`, run: () => act((x, at) => receiveCrn(x, crn.trim(), 'Agent (phone)', at)), block: !crnOk ? `Enter the ${crnName} (6–10 digits)` : '' };
+        alts = [
+          { label: 'Send reminder (SMS + email)', run: () => act((x, at) => remindCrn(x, at)) },
+          { label: 'Demo: customer shares it on the portal', run: () => act((x, at) => receiveCrn(x, String(100000000 + (x.id.charCodeAt(3) * 7919) % 899999999), 'Customer portal', at)) },
+        ];
+      } else if (dl.status === 'ID received') {
+        primary = { label: "Verify driver's licence", run: () => act((x, at) => verifyDl(x, at)) };
+      } else if (!answered) {
+        primary = { label: "Verify driver's licence", run: () => {}, block: 'Answer all four checks first' };
+        alts = [{ label: 'Accept the system suggestions', run: () => act((x) => QS.forEach(([k]) => setDlCheck(x, k, sug[k]))) }];
+      } else if (reupload.length) {
+        primary = { label: 'Request licence re-upload', run: () => act((x, at) => requestReupload(x, reupload.map((k) => ({ name: 'name mismatch', valid: 'expired or expiring', clear: 'image not readable', state: '' })[k]), at)) };
+      } else if (stateNo) {
+        primary = { label: `Raise customer ID request (${crnName})`, run: () => act((x, at) => requestCrn(x, at)) };
       } else {
-        primary = { label: `Verify licence & ${crnName}`, run: () => act((x, at) => verifyDl(x, crn.trim(), at)), block: crn.trim().length < 6 ? `Enter the ${crnName}` : '' };
-        alts = [{ label: 'Send a reminder to the customer', run: () => onComms(`Reminder sent: please share your ${crnName}`) }];
+        primary = { label: "Verify driver's licence", run: () => act((x, at) => verifyDl(x, at)) };
       }
     }
-    fx = dl.status === 'Verified' ? [] : mism && dl.status === 'Uploaded'
-      ? [`SMS + email the customer: how to get a ${crnName} from the ${o.customer.state} road authority and share it`, 'Customer documents waits on the number; SLA nudge after 24h']
-      : ["Mark the driver's licence verified on the order", mism ? `Save the ${crnName} to the order for registration (Registration team)` : 'Registration team can lodge the transfer in the customer state', 'Sync to OMS'];
+    fx = !open ? [] : dl.status === 'ID requested' ? ['Save the number on the order and move the request to Received', 'The customer can also submit it from the portal link; the request closes on its own', 'Auto-reminder every 24h; escalate to the RM lead after 3 reminders']
+      : stateNo && !reupload.length && dl.status !== 'ID received' ? [`Raise a customer ID request: SMS + email with a portal link and how to get a ${crnName} from the ${o.customer.state} road authority`, 'Track it on the order (requested, reminders, received) with a 24h SLA', 'Registration cannot be lodged until it arrives; it is on the delivery critical path']
+      : reupload.length ? ['Send the customer a portal link to upload the licence again, with the reason', 'Checks reset when the new images arrive'] : ["Mark the licence verified", 'Registration team can lodge the transfer', 'Sync to OMS'];
+    const yn = (k: DlCheck) => (
+      <div className="yn" role="radiogroup">
+        {(['Yes', 'No'] as const).map((v) => <button key={v} role="radio" aria-checked={ans[k] === v} disabled={!open || dl.status === 'ID requested' || dl.status === 'ID received'} className={ans[k] === v ? 'on ' + v.toLowerCase() : ''} onClick={() => act((x) => setDlCheck(x, k, v))}>{v}</button>)}
+      </div>
+    );
+    const STAGES = ['Requested', 'Awaiting customer', 'Received', 'Verified'];
+    const at = dl.status === 'ID requested' ? 1 : dl.status === 'ID received' ? 2 : dl.status === 'Verified' ? 3 : 0;
     body = (
       <>
-        <div className="sec-h">Driver's licence <span className="hs">uploaded by the customer on the portal</span></div>
-        <div className="kvgrid">
-          {([['Licence holder', o.customer.name], ['Licence number', dl.number], ['State of issue', dl.state], ['Expiry', dl.expiry], ['Lives in', `${o.customer.suburb}, ${o.customer.state}`], ['Registration state', o.customer.state]] as [string, string][]).map(([k, v]) => <div key={k}><span>{k}</span><b>{v}</b></div>)}
-        </div>
-        {!mism
-          ? <div className="statusline">Licence state {dl.state} matches the registration state {o.customer.state}. No customer reference number needed.</div>
-          : <div className="statusline warn"><b>{dl.state} licence, registering in {o.customer.state}.</b> The customer needs a <b>{crnName}</b> from the {o.customer.state} road authority and must share it with us before the car can be registered.</div>}
-        {mism && dl.status === 'ID requested' && (
-          <div className="tform" style={{ gridTemplateColumns: 'minmax(0, 1fr)' }}>
-            <label className="tf"><span>{crnName} <i className="req">*</i></span><input className="tf-in" value={crn} placeholder="e.g. 123456789" onChange={(e) => setCrn(e.target.value)} /><small className="tf-help">Requested from the customer · enter it when they share it</small></label>
+        <div className="sec-h">Driver's licence <span className="hs">uploaded by the customer on the portal · click to enlarge</span></div>
+        <div className="dl-imgs">
+          {(['front', 'back'] as const).map((sd) => (
+            <button key={sd} className="dl-img" onClick={() => setDlZoom(sd)} aria-label={`Open licence ${sd}`}><img src={dlPng(o, sd)} alt={`Driver's licence ${sd}`} /><span>{sd === 'front' ? 'Front' : 'Back'}</span></button>
+          ))}
+          <div className="kvgrid dl-data">
+            {([['Licence holder', o.customer.name], ['Licence number', dl.number], ['State of issue', dl.state], ['Expiry', dl.expiry], ['Lives in', `${o.customer.suburb}, ${o.customer.state}`], ['Car registration state', o.customer.state]] as [string, string][]).map(([k, v]) => <div key={k}><span>{k}</span><b>{v}</b></div>)}
           </div>
+        </div>
+        {dlZoom && <div className="lightbox" onClick={() => setDlZoom('')}><img src={dlPng(o, dlZoom)} alt={`Driver's licence ${dlZoom}`} /><button className="lb-x" aria-label="Close">×</button></div>}
+
+        <div className="sec-h">Agent checks</div>
+        <div className="dlq">
+          {QS.map(([k, q, hint]) => (
+            <div key={k} className={'dlq-row' + (ans[k] === 'No' ? ' no' : '')}>
+              <div><b>{q}</b><small>{hint} · <span className={'sugg ' + sug[k].toLowerCase()}>System: {sug[k]}</span></small></div>
+              {yn(k)}
+            </div>
+          ))}
+        </div>
+        {reupload.length > 0 && <div className="statusline warn">The licence fails a check, so ask the customer to upload it again before going further.</div>}
+        {dl.status === 'Re-upload requested' && <div className="statusline warn">Re-upload requested. Waiting for new images from the customer.</div>}
+
+        {(stateNo || dl.crn) && !reupload.length && (
+          <>
+            <div className="sec-h">Customer ID request · {crnName}</div>
+            <div className="crn">
+              <div className="crn-steps">{STAGES.map((st, k) => { const done = k < at || dl.status === 'Verified'; return <div key={st} className={done ? 'done' : k === at && dl.status !== 'Uploaded' ? 'on' : ''}><i>{done ? '✓' : k + 1}</i>{st}</div>; })}</div>
+              {dl.status === 'Uploaded' || (dl.status !== 'ID requested' && !dl.crn) ? (
+                <div className="cs">{dl.state} licence, registering in {o.customer.state}: the customer needs a {crnName} from the {o.customer.state} road authority. Raise the request and LeadVerse sends them a portal link with the steps.</div>
+              ) : dl.status === 'ID requested' ? (
+                <>
+                  <div className="cs">Requested {fmtAge(Date.now() - (dl.requestedAt || Date.now()))} ago · {dl.reminders || 0} reminder{dl.reminders === 1 ? '' : 's'} sent · SLA 24h. The customer can submit it on the portal, or enter it here if they share it on a call.</div>
+                  <label className="tf" style={{ maxWidth: 360 }}><span>{crnName}</span><input className="tf-in" inputMode="numeric" value={crn} placeholder="e.g. 123456789" onChange={(e) => setCrn(e.target.value)} /></label>
+                </>
+              ) : (
+                <div className="cs">Received: <b>{dl.crn}</b> via {dl.crnVia}.</div>
+              )}
+            </div>
+          </>
         )}
-        {dl.status === 'Verified' && <div className="statusline">Verified{dl.crn ? ` · ${crnName}: ${dl.crn}` : ''}.</div>}
+        {dl.status === 'Verified' && <div className="statusline">Licence verified{dl.crn ? ` · ${crnName} ${dl.crn} passed to Registration` : ''}.</div>}
       </>
     );
   }

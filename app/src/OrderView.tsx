@@ -56,7 +56,7 @@ function DocWorkflow({ o, now, onAct }: { o: Order; now: number; onAct: (fn: (o:
       <div className="doc-card">
         <div className="dh"><b>Driver's licence</b><span className={'chip ' + (o.dl.status === 'Verified' ? 'c-green' : 'c-grey')}>{o.dl.status}</span></div>
         <div className="dm">{o.dl.state} {o.dl.number} · expires {o.dl.expiry} · uploaded by customer</div>
-        {needsCrn(o) && <div className="dm">{CRN_NAME[o.customer.state]}: <b>{o.dl.crn || (o.dl.status === 'ID requested' ? 'requested' : 'needed')}</b></div>}
+        {needsCrn(o) && <div className="dm">{CRN_NAME[o.customer.state]}: <b>{o.dl.crn || (o.dl.status === 'ID requested' ? `requested ${fmtAge(now - (o.dl.requestedAt || now))} ago` : 'needed')}</b></div>}
       </div>
       {o.tradeIn && <div className="doc-card"><div className="dh"><b>Form 4 (trade-in)</b><span className="chip c-grey">{c && ['form4', 'review', 'signed'].includes(c.stage) ? 'Received' : 'Pending'}</span></div><div className="dm">{o.tradeIn.car}</div></div>}
     </>
