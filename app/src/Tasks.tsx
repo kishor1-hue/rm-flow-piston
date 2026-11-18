@@ -13,7 +13,7 @@ const PAGE = 8;
 // Persona dropdown, named the way Leadverse names its task personas.
 export const PERSONA_MENU: { id: PersonaId; label: string }[] = [
   { id: 'rm', label: 'RM' }, { id: 'finops', label: 'FinOps' }, { id: 'refurb', label: 'VAS Refurb · QC' },
-  { id: 'rego', label: 'Registration' }, { id: 'delivery', label: 'Delivery' }, { id: 'cx', label: 'CX' },
+  { id: 'rego', label: 'Registration' }, { id: 'delivery', label: 'Delivery' }, { id: 'tradein', label: 'Trade-In' }, { id: 'cx', label: 'CX' },
 ];
 
 export function Tasks({ orders, persona, setPersona, now, open, onMove }: {

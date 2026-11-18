@@ -2,7 +2,7 @@
 // Every stage carries the HubSpot pipeline/stage it replaces, so the demo can show
 // "this is how it works in HubSpot today" next to "this is the LeadVerse task".
 
-export type PersonaId = 'rm' | 'refurb' | 'rego' | 'delivery' | 'finops' | 'cx';
+export type PersonaId = 'rm' | 'refurb' | 'rego' | 'delivery' | 'finops' | 'cx' | 'tradein';
 
 export const PERSONAS: Record<PersonaId, { label: string; user: string; short: string; color: string }> = {
   rm: { label: 'Relationship manager', user: 'Priyanka A.', short: 'RM', color: '#4736FE' },
@@ -11,6 +11,7 @@ export const PERSONAS: Record<PersonaId, { label: string; user: string; short: s
   delivery: { label: 'Delivery', user: 'Josh K.', short: 'Delivery', color: '#1358A8' },
   finops: { label: 'FinOps', user: 'FinOps', short: 'FinOps', color: '#566077' },
   cx: { label: 'CX / Aftercare', user: 'CX team', short: 'CX', color: '#566077' },
+  tradein: { label: 'Trade-In team', user: 'Sam R.', short: 'Trade-In', color: '#0E7490' },
 };
 
 export const WORKING_PERSONAS: PersonaId[] = ['rm', 'refurb', 'rego', 'delivery'];
@@ -48,7 +49,7 @@ export interface StageDef {
 }
 
 export type JourneyId =
-  | 'contract' | 'payment' | 'rwc' | 'rego' | 'refurb' | 'vas' | 'transit' | 'delivery' | 'warranty' | 'checkin';
+  | 'contract' | 'payment' | 'rwc' | 'rego' | 'refurb' | 'vas' | 'transit' | 'delivery' | 'warranty' | 'checkin' | 'tradein';
 
 export interface JourneyDef {
   id: JourneyId;
@@ -62,6 +63,16 @@ export interface JourneyDef {
 }
 
 const f = (key: string, label: string, type: FieldType, extra: Partial<FieldDef> = {}): FieldDef => ({ key, label, type, ...extra });
+
+// Trade-in Details form (B2C admin Add Trade-in), owned by the Trade-In team.
+export const TI_FIELDS: FieldDef[] = [
+  f('tiVin', 'Trade in VIN', 'text'), f('tiValue', 'Trade in Value ($)', 'number', { hs: 'trade_in_value' }), f('tiRego', 'Trade in Rego', 'text'),
+  f('tiState', 'Trade in State', 'select', { options: ['NSW', 'VIC', 'QLD', 'SA', 'WA', 'TAS', 'ACT', 'NT'] }), f('tiMake', 'Trade in Make', 'text'), f('tiModel', 'Trade in Model', 'text'),
+  f('tiVariant', 'Trade in Variant', 'text'), f('tiYear', 'Trade in Year', 'number'), f('tiOdo', 'Trade in Odometer (km)', 'number'),
+  f('tiFinance', 'Trade in Pending Finance', 'select', { options: ['Yes', 'No'] }), f('tiWrittenOff', 'Trade in Written off', 'select', { options: ['Yes', 'No'] }),
+  f('tiPpsr', 'PPSR document uploaded (PDF)', 'check'),
+];
+const TI_REQUIRED = ['tiVin', 'tiValue', 'tiRego', 'tiState', 'tiMake', 'tiModel', 'tiYear', 'tiOdo', 'tiFinance', 'tiWrittenOff', 'tiPpsr'];
 
 export const JOURNEYS: Record<JourneyId, JourneyDef> = {
   contract: {
@@ -321,6 +332,28 @@ export const JOURNEYS: Record<JourneyId, JourneyDef> = {
     why: 'Created on delivery.',
     stages: [{ key: 'gen', label: 'To be generated', hs: 'Extended warranty to be generated' }, { key: 'sent', label: 'Sent to customer', hs: 'Extended warranty sent to Customer', kind: 'done' }],
   },
+  tradein: {
+    id: 'tradein', name: 'Trade-in valuation', persona: 'tradein', hsObject: 'Ticket', blocksSlot: false,
+    hsPipeline: '02c_Trade-in ops',
+    why: 'Created when the RM confirms the customer opted in to a trade-in. The Trade-In team inspects the car and owns the final price; the RM only confirms it with the customer. A dispute comes back here.',
+    stages: [
+      {
+        key: 'requested', label: 'Valuation requested', hs: 'New · valuation requested', slaHours: 24,
+        guide: 'Inspect the trade-in, complete the details and set the final price. Changes here are stored in the B2C database only, not in C2B.',
+        auto: 'Created by the RM opting the customer in to trade-in (step 1)',
+        fields: TI_FIELDS,
+        next: [{ label: 'Finalise trade-in price', to: 'final', tone: 'primary', requires: TI_REQUIRED }],
+      },
+      {
+        key: 'disputed', label: 'Customer disputed', hs: 'Disputed · re-valuation', kind: 'fail', slaHours: 24,
+        guide: 'The customer disputed the final price (see the dispute note from the RM). Re-check the car and set the final price again.',
+        fields: [f('disputeNote', 'Dispute note from the RM', 'textarea'), ...TI_FIELDS],
+        next: [{ label: 'Finalise revised price', to: 'final', tone: 'primary', requires: TI_REQUIRED }],
+      },
+      { key: 'final', label: 'Final price set', hs: 'Final price confirmed', kind: 'done' },
+    ],
+  },
+
   checkin: {
     id: 'checkin', name: 'Post-delivery check-ins', persona: 'cx', hsObject: 'Ticket', blocksSlot: false, hsPipeline: '08_Post Delivery Check-ins',
     why: 'Day 3 and day 7 calls.',
@@ -361,6 +394,8 @@ export const RULES: RuleDef[] = [
   { id: 'R-09', when: 'Handover marked delivered', then: 'Create Warranty + Post-delivery check-in tasks for CX; close the RM order', persona: ['cx'], hsToday: 'TW08 → deal actual_delivery_date, L06, deal 9, 08 ticket at Delivered to Customer. DW07b (deal 9/10, +5 min) → 07b default warranty, plus extended if EW / Integrity / RSA opted. DW10: 09 transfer ticket 6 days later', evidence: 'TW08 / DW07b / DW10 definitions' },
   { id: 'R-10', when: 'RWC fails', then: 'ETA required to save; reminder to rework team at 48h; RM sees ETA on the order', persona: ['rego', 'rm'], hsToday: 'Requires Mechanical/Panel stage exists, no ETA property', evidence: 'Reimagine doc R1 (P0)' },
   { id: 'R-12', when: 'A balance payment is recorded on a cash order', then: 'Outstanding recalculated; fully paid → Finance ticket to Final remittance received, otherwise Awaiting additional deposit', persona: ['finops', 'rm'], hsToday: 'TW01a – Split Payment updates: counts split payments on the cash ticket and branches on outstanding = 0', evidence: 'TW01a definition' },
+  { id: 'R-14', when: 'RM records that the customer opted in to a trade-in', then: 'Trade-in valuation request created for the Trade-In team, prefilled with what the customer entered at booking; the Trade-in step appears in the RM flow', persona: ['rm', 'tradein'], hsToday: '02c Trade-in ops ticket created by hand', evidence: 'User walkthrough' },
+  { id: 'R-15', when: 'Trade-In team sets the final price, or the customer disputes it', then: 'Final price flows into the order (DAP breakup, outstanding, documents flagged for regenerate). A dispute sends the request back to the Trade-In team; the balance payment waits for an agreed price', persona: ['rm', 'tradein'], hsToday: 'trade_in_value updated by hand in B2C admin', evidence: 'User walkthrough' },
   { id: 'R-13', when: 'RM applies a discount or finalises the trade-in value', then: 'Outstanding and tax invoice recalculated; discounts above the limit wait for sales-manager approval', persona: ['rm'], hsToday: 'Not in HubSpot: done in the B2C admin panel (Discount codes · discount calculator / Add trade-in), HubSpot only receives discount_value and trade_in_value', evidence: 'b2c-admin-web-au: pages/DiscountCodes, pages/Orders/components/AddTradeIn' },
   { id: 'R-11', when: 'Interstate car arrives at the hub', then: 'Create the Roadworthy task (car prep starts at the destination)', persona: ['rego'], hsToday: 'TW03d: 04 ticket → Interstate Arrival → deal interstate_arrival_date, L02, deal 4, 05 ticket at Awaiting Refurb if none exists', evidence: 'TW03d definition' },
 ];

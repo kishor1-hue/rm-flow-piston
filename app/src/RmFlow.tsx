@@ -1,9 +1,9 @@
 // RM cash journey: one guided action flow per order, from deposit to delivery.
 // Each step is an action; the "LeadVerse will" list is what the backend does in place of HubSpot workflows.
 import { Fragment, useEffect, useRef, useState } from 'react';
-import { JOURNEYS, PERSONAS, type TransitionDef } from './model';
+import { JOURNEYS, PERSONAS, TI_FIELDS, type TransitionDef } from './model';
 import {
-  applyDiscount, approveDiscount, availableNext, canMove, DISCOUNT_LIMIT, finaliseTradeIn, fmtAge, gatesClear, gateStatus,
+  acceptTradeIn, applyDiscount, approveDiscount, disputeTradeIn, setTradeInOpted, availableNext, canMove, DISCOUNT_LIMIT, fmtAge, gatesClear, gateStatus,
   addVas, CRN_NAME, dap, DOC_LABEL, docOutdated, regenerateDoc, requestCrn, verifyDl, dlSuggest, receiveCrn, remindCrn, requestReupload, setDlCheck, type DlCheck, type DocKey, govtCharges, isDone, missingFields, money, removeVas, VAS_CATALOG, vasTotal, type PlanType, orderTotal, outstanding, recordPayment, setDeliveryMode, skipStep, stageDef, task, type Order, type Task,
 } from './engine';
 import { Field } from './TaskCard';
@@ -40,7 +40,7 @@ const STEPS: { key: RmStep; label: string; where: string }[] = [
   { key: 'vas', label: 'Add VAS', where: 'B2C admin · VAS Sales' },
   { key: 'docs', label: 'Customer documents', where: "Driver's licence · registration state" },
   { key: 'promise', label: 'Sales promise', where: 'Deal property sales_promise_' },
-  { key: 'tradein', label: 'Trade-in', where: 'B2C admin · Add trade-in' },
+  { key: 'tradein', label: 'Trade-in', where: 'Trade-In team owns the price · HubSpot 02c' },
   { key: 'balance', label: 'Balance payment', where: 'Finance ticket · HubSpot 01a' },
   { key: 'final', label: 'Contract & invoice', where: 'Customer documents ticket · HubSpot 02' },
   { key: 'delivery', label: 'Book delivery', where: 'B2C admin · Book delivery slots' },
@@ -48,18 +48,20 @@ const STEPS: { key: RmStep; label: string; where: string }[] = [
 
 export function stepDone(o: Order, k: RmStep): boolean {
   const pay = task(o, 'payment');
-  if (k === 'deposit') return !!pay && pay.stage !== 'deposit';
+  if (k === 'deposit') return !!pay && pay.stage !== 'deposit' && !!o.tradeInOpted;
   // Licence step ends once checked; when a customer ID is needed it is collected later, in Contract & invoice.
   if (k === 'docs') return ['Verified', 'ID requested', 'ID received'].includes(o.dl.status);
   if (k === 'final') return !!o.rmDone.final;
   if (k === 'vas') return !!o.rmDone.vas;
   if (k === 'promise') return !!o.rmDone.promise;
   if (k === 'discount') return !!o.rmDone.discount && o.discount?.status !== 'Awaiting approval';
-  if (k === 'tradein') return !o.tradeIn || !!o.rmDone.tradein;
+  if (k === 'tradein') return o.tradeInOpted !== 'Yes' || !!o.rmDone.tradein;
   if (k === 'balance') return isDone(pay);
   return !!o.slot;
 }
-export const firstOpenStep = (o: Order): RmStep => STEPS.find((s) => !stepDone(o, s.key))?.key || 'delivery';
+// The Trade-in step only exists when the customer opted in (answered in step 1).
+const stepsFor = (o: Order) => STEPS.filter((s) => s.key !== 'tradein' || o.tradeInOpted === 'Yes');
+export const firstOpenStep = (o: Order): RmStep => stepsFor(o).find((s) => !stepDone(o, s.key))?.key || 'delivery';
 
 function Fx({ items }: { items: string[] }) {
   return (
@@ -240,6 +242,7 @@ interface Props {
 }
 
 export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMove, onBook, onBypass, onComms, act }: Props) {
+  const SV = stepsFor(o);
   const [menu, setMenu] = useState(false);
   const [zoom, setZoom] = useState(false);
   const [date, setDate] = useState('Tue 17 Nov');
@@ -257,7 +260,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   const [dlZoom, setDlZoom] = useState<'' | 'front' | 'back'>('');
   useEffect(() => { setCrn(''); }, [o.id]);
   useEffect(() => { setSp(o.promiseChecklist || prefillChecklist(o.promises)); setSpTried(false); }, [o.id]);
-  const [tiv, setTiv] = useState(String(o.tradeIn?.value || ''));
+  const [tiDispute, setTiDispute] = useState('');
   const [pay, setPay] = useState({ amount: '', ref: '' });
   useEffect(() => { setMenu(false); }, [step, o.id]);
   // Finishing a step moves the RM on to the next open one.
@@ -265,7 +268,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   useEffect(() => {
     const d = stepDone(o, step);
     const same = wasDone.current.key === o.id + step;
-    if (same && d && !wasDone.current.done) { const n = STEPS.slice(STEPS.findIndex((s) => s.key === step) + 1).find((s) => !stepDone(o, s.key)); if (n) setStep(n.key); }
+    if (same && d && !wasDone.current.done) { const n = SV.slice(SV.findIndex((s) => s.key === step) + 1).find((s) => !stepDone(o, s.key)); if (n) setStep(n.key); }
     wasDone.current = { key: o.id + step, done: d };
   });
   useEffect(() => { setPay({ amount: String(outstanding(o) || ''), ref: '' }); }, [o.id, step, o.payments.length, o.discount?.status, o.tradeIn?.value]);
@@ -273,9 +276,11 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   const p = task(o, 'payment')!;
   const c = task(o, 'contract')!;
   const first = o.customer.name.split(' ')[0];
-  const idx = STEPS.findIndex((s) => s.key === step);
-  const go = (d: number) => setStep(STEPS[Math.max(0, Math.min(STEPS.length - 1, idx + d))].key);
-  const goNextOpen = () => { const n = STEPS.slice(idx + 1).find((s) => !stepDone(o, s.key)); if (n) setStep(n.key); };
+  const idx0 = SV.findIndex((s) => s.key === step);
+  const idx = idx0 < 0 ? 0 : idx0;
+  useEffect(() => { if (idx0 < 0) setStep(SV[0].key); }, [idx0]);
+  const go = (d: number) => setStep(SV[Math.max(0, Math.min(SV.length - 1, idx + d))].key);
+  const goNextOpen = () => { const n = SV.slice(idx + 1).find((s) => !stepDone(o, s.key)); if (n) setStep(n.key); };
   const moveTask = (tk: Task, to: string) => { onMove(tk.id, to); };
   const blockOf = (tk: Task, n: TransitionDef) => {
     const miss = missingFields(tk, n.requires);
@@ -295,11 +300,12 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   };
 
   let body: React.ReactNode = null;
-  const cur = STEPS[idx];
+  const cur = SV[idx];
 
   if (step === 'deposit') {
     const a = p.stage === 'deposit' ? taskActions(p) : { primary: undefined, alts: [] };
     primary = a.primary; alts = a.alts;
+    if (!primary && !o.tradeInOpted) primary = { label: 'Continue', run: () => {}, block: 'Answer: did the customer opt in to a trade-in?' };
     fx = p.stage === 'deposit'
       ? ['Finance ticket → First Instalment Paid', 'Stamp GFR date on the order (HubSpot DW01b)', o.interstate ? 'Create the interstate inspection task for Delivery (DW02)' : 'Create the RWC / refurb task for the Refurb team (DW02)', 'Order moves to Car prep (HubSpot deal 4: Awaiting RWC)', 'Sync GFR to OMS']
       : [];
@@ -307,6 +313,14 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     const pending = p.stage === 'deposit';
     body = (
       <>
+        <div className="dlq" style={{ marginTop: 14 }}>
+          <div className={'dlq-row' + (o.tradeInOpted === 'Yes' ? '' : '')}>
+            <div><b>Consumer opted Trade-In?</b><small>{o.tradeInBooking ? `At booking the customer entered ${o.tradeInBooking.car} · ${money(o.tradeInBooking.value)}` : 'No trade-in entered at booking'} · Yes adds the Trade-in step and sends a valuation request to the Trade-In team</small></div>
+            <div className="yn" role="radiogroup">
+              {(['Yes', 'No'] as const).map((v) => <button key={v} role="radio" aria-checked={o.tradeInOpted === v} disabled={!!o.rmDone.tradein || task(o, 'tradein')?.stage === 'final'} className={o.tradeInOpted === v ? 'on ' + (v === 'Yes' ? 'yes' : 'no') : ''} onClick={() => act((x, at) => setTradeInOpted(x, v, at))}>{v}</button>)}
+            </div>
+          </div>
+        </div>
         <TicketStatus o={o} t={p} title={`${o.id}-${first} (Finance Ticket)`} onMove={(to) => moveTask(p, to)} />
         <div className="sec-h">Payments</div>
         <div className="tbox">
@@ -654,23 +668,43 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   }
 
   if (step === 'tradein') {
-    if (o.tradeIn && !o.rmDone.tradein) {
-      primary = { label: 'Finalise trade-in value', run: () => act((x, at) => finaliseTradeIn(x, Number(tiv), at)), block: !Number(tiv) ? 'Enter the final value' : '' };
-      fx = ['Set the trade-in value on the order', 'Recalculate the outstanding amount', 'Send the final valuation to the Trade-in ops task (HubSpot 02c)', 'Add Form 4 to the customer documents'];
+    const tt = task(o, 'tradein');
+    const ti = o.tradeIn;
+    const fin = tt?.stage === 'final';
+    const accepted = !!o.rmDone.tradein;
+    if (tt && !fin) {
+      primary = { label: 'Waiting for the Trade-In team', run: () => {}, block: tt.stage === 'disputed' ? 'Dispute is with the Trade-In team for re-valuation' : 'The Trade-In team has not set the final price yet' };
+      alts = [{ label: 'Nudge the Trade-In team', run: () => onComms('Nudged the Trade-In team on the trade-in valuation') }];
+    } else if (fin && !accepted) {
+      primary = { label: `Customer accepted ${money(ti!.value)}`, run: () => act((x, at) => acceptTradeIn(x, at)) };
+      alts = [{ label: `Call ${first} about the final price`, run: () => onComms(`Call to ${o.customer.phone}: trade-in final price ${money(ti!.value)} discussed`) }];
     }
-    body = !o.tradeIn ? <div className="statusline">No trade-in on this order. Nothing to do here.</div> : (
+    fx = fin && !accepted ? ['Record the customer agreed the final trade-in price', 'Balance payment can go ahead at the new outstanding amount', 'Contract & invoice flag for regenerate if the price changed'] : tt && !fin ? ['The Trade-In team inspects the car and sets the final price', 'It reflects here and in the price breakup automatically'] : [];
+    const v = tt?.fields || {};
+    const shown = (fd: (typeof TI_FIELDS)[number]) => { const x = v[fd.key]; return fd.type === 'check' ? (x ? 'Uploaded' : 'Not uploaded') : x ? (fd.key === 'tiValue' ? money(Number(x)) : String(x)) : '—'; };
+    const status = !tt ? '' : tt.stage === 'requested' ? `Valuation requested ${fmtAge(Date.now() - tt.enteredAt)} ago. The Trade-In team inspects the car and sets the final price; it shows here as soon as they do.`
+      : tt.stage === 'disputed' ? `Customer disputed: “${v.disputeNote}”. Back with the Trade-In team for re-valuation (${fmtAge(Date.now() - tt.enteredAt)} ago).`
+      : accepted ? `Customer accepted ${money(ti!.value)} ${fmtAge(Date.now() - o.rmDone.tradein!)} ago. Balance payment can go ahead.`
+      : `Final price ${money(ti!.value)} set by the Trade-In team${ti!.offered && ti!.offered !== ti!.value ? ` (${money(ti!.offered)} at booking, ${ti!.value < ti!.offered ? '−' : '+'}${money(Math.abs(ti!.value - ti!.offered))})` : ''}. Confirm it with the customer.`;
+    body = (
       <>
-        <div className="kvbox" style={{ marginTop: 14 }}>
-          <div><span>Trade-in car</span><b>{o.tradeIn.car}</b></div>
-          <div><span>Offered at booking</span><b>{money(o.tradeIn.value)}</b></div>
-          <div><span>Mode</span><b>Drop at hub on handover day</b></div>
+        <div className={'statusline' + (tt && (tt.stage === 'disputed' || (fin && !accepted)) ? ' warn' : '')} style={{ marginTop: 14 }}>{status}</div>
+        <div className="sec-h">Trade-in Details <span className="hs">owned by the Trade-In team · read-only for the RM</span></div>
+        <div className="ti-form">
+          {TI_FIELDS.map((fd, k) => (
+            <label key={fd.key} className="tf"><span>{k + 1}. {fd.label.replace(' ($)', '')}</span><div className={'tf-ro' + (fd.key === 'tiValue' ? ' strong' : '')}>{shown(fd)}</div></label>
+          ))}
         </div>
-        {!o.rmDone.tradein ? (
-          <div className="fields" style={{ maxWidth: 320 }}>
-            <div className="fld"><label>Final value after inspection ($) *</label><input type="number" value={tiv} onChange={(e) => setTiv(e.target.value)} /></div>
-          </div>
-        ) : <div className="statusline">Final value {money(o.tradeIn.value)} · set {fmtAge(Date.now() - o.rmDone.tradein)} ago.</div>}
-        <div className="hs" style={{ marginTop: 6 }}>trade_in_value · tradein_valuation_finalised · b2c-admin Add trade-in</div>
+        <div className="cs" style={{ marginTop: 8 }}>*If modified by the Trade-In team, changes are stored in the B2C database only, not in C2B.</div>
+        {fin && !accepted && (
+          <>
+            <div className="sec-h">Customer disputes the price?</div>
+            <div className="crn-in">
+              <label className="tf" style={{ flex: '1 1 320px' }}><span>Reason from the customer</span><input className="tf-in" value={tiDispute} placeholder="e.g. Has the full service history; expects $5,500" onChange={(e) => setTiDispute(e.target.value)} /></label>
+              <button className="btn danger" disabled={tiDispute.trim().length < 5} onClick={() => { act((x, at) => disputeTradeIn(x, tiDispute.trim(), at)); setTiDispute(''); }}>Raise dispute to Trade-In team</button>
+            </div>
+          </>
+        )}
       </>
     );
   }
@@ -680,7 +714,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     if (p.stage === 'deposit') {
       primary = { label: 'Record payment', run: () => {}, block: 'Confirm the first instalment in step 1 first' };
     } else if (['instalment', 'short'].includes(p.stage)) {
-      primary = { label: `Record ${money(Number(pay.amount || 0))} payment`, run: () => act((x, at) => recordPayment(x, Number(pay.amount), pay.ref || 'Bank transfer', 'rm', at)), block: !Number(pay.amount) ? 'Enter the amount received' : '' };
+      primary = { label: `Record ${money(Number(pay.amount || 0))} payment`, run: () => act((x, at) => recordPayment(x, Number(pay.amount), pay.ref || 'Bank transfer', 'rm', at)), block: o.tradeInOpted === 'Yes' && !o.rmDone.tradein ? 'Trade-in final price not agreed with the customer yet' : !Number(pay.amount) ? 'Enter the amount received' : '' };
       alts = [{ label: `Call ${first} to chase the balance`, run: () => onComms(`Call to ${o.customer.phone}: balance of ${money(left)} discussed`) }, ...taskActions(p).alts];
       fx = ['Add the payment to the ledger', `Fully paid → Finance ticket to Final remittance received, else Awaiting additional deposit (HubSpot TW01a)`];
     } else {
@@ -762,7 +796,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   return (
     <>
       <div className={'stepper' + (stepsOpen ? '' : ' mini')}>
-        {STEPS.map((s) => {
+        {SV.map((s) => {
           const d = stepDone(o, s.key);
           const st = s.key === step ? (d ? 'done' : 'act') : d ? 'done' : '';
           return (
@@ -784,12 +818,12 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
       </div>
       <div className="ws-foot">
         <button className="btn prevb" disabled={idx === 0} onClick={() => go(-1)}>Previous</button>
-        <span className="exit">{done ? 'Step complete' : `Step ${idx + 1} of ${STEPS.length}`}</span>
+        <span className="exit">{done ? 'Step complete' : `Step ${idx + 1} of ${SV.length}`}</span>
         <div className="split">
           {primary ? (
             <button className="btn primary" disabled={!!primary.block || cancelled} title={primary.block} onClick={() => { primary!.run(); setMenu(false); }}>Next: {primary.label}</button>
           ) : (
-            <button className="btn primary" disabled={idx === STEPS.length - 1 && done} onClick={goNextOpen}>{idx === STEPS.length - 1 ? 'All done' : 'Go to next open step'}</button>
+            <button className="btn primary" disabled={idx === SV.length - 1 && done} onClick={goNextOpen}>{idx === SV.length - 1 ? 'All done' : 'Go to next open step'}</button>
           )}
           <button className="btn primary caret" aria-label="More actions" onClick={() => setMenu(!menu)}>▾</button>
           {menu && (

@@ -101,7 +101,9 @@ export interface Order {
   depositPaid: number;
   vas: VasItem[];
   promises: string[];
-  tradeIn?: { car: string; value: number };
+  tradeInBooking?: { car: string; value: number }; // what the customer entered at booking
+  tradeInOpted?: 'Yes' | 'No'; // RM confirms in step 1
+  tradeIn?: { car: string; value: number; offered: number; finalAt?: number; dispute?: string }; // only when opted in
   deliveryMode: 'Pick up' | 'Home delivery';
   interstate: boolean;
   depositAt: number;
@@ -136,17 +138,17 @@ export function isDone(t?: Task) {
   return !!t && stageDef(t).kind === 'done';
 }
 const who = (p: PersonaId | 'system') => (p === 'system' ? 'Workflow' : `${PERSONA_USER[p]}`);
-const PERSONA_USER: Record<PersonaId, string> = { rm: 'Priyanka A.', refurb: 'Marco D.', rego: 'Hannah L.', delivery: 'Josh K.', finops: 'FinOps', cx: 'CX team' };
+const PERSONA_USER: Record<PersonaId, string> = { rm: 'Priyanka A.', refurb: 'Marco D.', rego: 'Hannah L.', delivery: 'Josh K.', finops: 'FinOps', cx: 'CX team', tradein: 'Sam R.' };
 
 function log(o: Order, a: Activity) {
   o.activity.unshift(a);
 }
 
-function createTask(o: Order, j: JourneyId, at: number, rule: string, item?: string) {
+export function createTask(o: Order, j: JourneyId, at: number, rule: string, item?: string) {
   const def = JOURNEYS[j];
   const t: Task = { id: tid(), journey: j, stage: def.stages[0].key, enteredAt: at, createdAt: at, item, fields: {} };
   o.tasks.push(t);
-  log(o, { at, who: 'Workflow', kind: 'rule', rule, persona: def.persona, text: `Created ${def.name}${item ? ' · ' + item : ''} task for ${def.persona === 'rego' ? 'Registration' : def.persona === 'cx' ? 'CX' : def.persona === 'finops' ? 'FinOps' : def.persona === 'rm' ? 'RM' : def.persona === 'refurb' ? 'Refurb' : 'Delivery'}` });
+  log(o, { at, who: 'Workflow', kind: 'rule', rule, persona: def.persona, text: `Created ${def.name}${item ? ' · ' + item : ''} task for ${def.persona === 'rego' ? 'Registration' : def.persona === 'cx' ? 'CX' : def.persona === 'finops' ? 'FinOps' : def.persona === 'rm' ? 'RM' : def.persona === 'refurb' ? 'Refurb' : def.persona === 'tradein' ? 'the Trade-In team' : 'Delivery'}` });
   return t;
 }
 
@@ -258,6 +260,13 @@ export function move(o: Order, t: Task, to: string, by: PersonaId | 'system', at
   if (t.journey === 'payment' && ['instalment', 'short', 'final', 'gfd'].includes(to)) fireGfr(o, at);
   if (t.journey === 'payment' && to === 'cancelled') log(o, { at, who: 'Workflow', kind: 'rule', text: 'Sale cancelled — all open tickets on the order move to Cancelled sale; customer refund raised' });
   if (t.journey === 'transit' && to === 'arrived') createTask(o, 'rwc', at, 'R-11');
+  if (t.journey === 'tradein' && to === 'final') {
+    const fl = t.fields;
+    o.tradeIn = { car: `${fl.tiYear} ${fl.tiMake} ${fl.tiModel}${fl.tiVariant ? ' ' + fl.tiVariant : ''}`, value: Number(fl.tiValue), offered: o.tradeIn?.offered || 0, finalAt: at };
+    delete o.rmDone.tradein;
+    o.changedAt = at;
+    log(o, { at, who: 'Workflow', kind: 'rule', rule: 'R-15', text: `Trade-in final price ${money(o.tradeIn.value)} set by the Trade-In team; RM to confirm with the customer. Outstanding now ${money(outstanding(o))}` });
+  }
   if (t.journey === 'rwc' && to === 'complete') {
     createTask(o, 'rego', at, 'R-05');
     createTask(o, 'refurb', at, 'R-05');
@@ -396,17 +405,48 @@ export function verifyDl(o: Order, at: number) {
   log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text: `Driver's licence verified (${o.dl.state} ${o.dl.number})${o.dl.crn ? ` · ${CRN_NAME[o.customer.state]} ${o.dl.crn}` : ''}` });
   if (o.dl.crn) log(o, { at, who: 'Workflow', kind: 'rule', text: `Customer ID passed to the Registration team for the ${o.customer.state} transfer` });
 }
-export function skipStep(o: Order, step: 'promise' | 'discount' | 'tradein' | 'vas' | 'final', text: string, at: number) {
+export function skipStep(o: Order, step: 'promise' | 'discount' | 'vas' | 'final', text: string, at: number) {
   o.rmDone[step] = at;
   log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text });
 }
-export function finaliseTradeIn(o: Order, value: number, at: number) {
-  if (!o.tradeIn) return;
-  o.tradeIn.value = value;
-  o.rmDone.tradein = at;
+// Trade-in: the RM records the opt-in, the Trade-In team owns the price, the RM gets the customer's agreement.
+function tradeInPrefill(o: Order): Record<string, string | boolean> {
+  const b = o.tradeInBooking;
+  if (!b) return { tiState: o.customer.state };
+  const [year, make, ...model] = b.car.split(' ');
+  const n = [...o.id].reduce((a, c) => a * 31 + c.charCodeAt(0), 3) >>> 0;
+  return { tiVin: ('KMH' + n.toString(36).toUpperCase().replace(/[IOQ]/g, '8') + 'X0000000000').slice(0, 17), tiValue: String(b.value), tiRego: `${String.fromCharCode(65 + n % 26)}${String.fromCharCode(65 + Math.floor(n / 8) % 26)}${String.fromCharCode(65 + Math.floor(n / 64) % 26)}${n % 90 + 10}`, tiState: o.customer.state, tiMake: make, tiModel: model.join(' '), tiYear: year, tiOdo: String(60000 + n % 90000), tiFinance: 'No', tiWrittenOff: 'No' };
+}
+export function setTradeInOpted(o: Order, v: 'Yes' | 'No', at: number) {
+  if (o.tradeInOpted === v) return;
+  o.tradeInOpted = v;
+  if (v === 'Yes') {
+    const b = o.tradeInBooking;
+    o.tradeIn = { car: b?.car || 'Details to be captured by the Trade-In team', value: b?.value || 0, offered: b?.value || 0 };
+    log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text: `Customer opted in to trade-in${b ? ` (${b.car}, ${money(b.value)} at booking)` : ''}` });
+    if (!task(o, 'tradein')) { const t = createTask(o, 'tradein', at, 'R-14'); Object.assign(t.fields, tradeInPrefill(o)); }
+  } else {
+    o.tradeIn = undefined;
+    o.tasks = o.tasks.filter((t) => t.journey !== 'tradein');
+    delete o.rmDone.tradein;
+    log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text: 'No trade-in on this order' });
+  }
   o.changedAt = at;
-  log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text: `Trade-in final value ${money(value)} (${o.tradeIn.car})` });
-  log(o, { at, who: 'Workflow', kind: 'rule', rule: 'R-13', text: `Outstanding recalculated to ${money(outstanding(o))}; Trade-in ops task (02c) gets the final valuation` });
+}
+export function acceptTradeIn(o: Order, at: number) {
+  if (!o.tradeIn) return;
+  o.rmDone.tradein = at;
+  o.tradeIn.dispute = undefined;
+  log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text: `Customer accepted the final trade-in price ${money(o.tradeIn.value)} (${o.tradeIn.car})` });
+}
+export function disputeTradeIn(o: Order, reason: string, at: number) {
+  const t = task(o, 'tradein');
+  if (!t || !o.tradeIn) return;
+  t.stage = 'disputed'; t.enteredAt = at; t.fields.disputeNote = reason;
+  o.tradeIn.dispute = reason; o.tradeIn.finalAt = undefined;
+  delete o.rmDone.tradein;
+  log(o, { at, who: who('rm'), kind: 'stage', persona: 'rm', text: `Customer disputed the trade-in price: ${reason}` });
+  log(o, { at, who: 'Workflow', kind: 'rule', rule: 'R-15', text: 'Trade-in request sent back to the Trade-In team for re-valuation; balance payment waits for an agreed price' });
 }
 export function setDeliveryMode(o: Order, mode: Order['deliveryMode'], at: number) {
   o.deliveryMode = mode;

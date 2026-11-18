@@ -1,7 +1,7 @@
 // Invented demo orders. Each one is replayed through the engine from its deposit,
 // so tasks, timestamps and the activity feed are produced by the same rules the UI uses.
 import { JOURNEYS, type JourneyId } from './model';
-import { bookSlot, createOrder, HOUR, move, setBypass, task, type Order, type PaymentMode, type State, type VasItem } from './engine';
+import { acceptTradeIn, bookSlot, createOrder, HOUR, move, setBypass, setTradeInOpted, task, type Order, type PaymentMode, type State, type VasItem } from './engine';
 
 type Step =
   | [number, JourneyId, string, Record<string, string | boolean>?, string?]
@@ -19,7 +19,7 @@ const VAS: Record<string, VasItem> = {
 interface SeedDef {
   id: string; name: string; state: State; suburb: string; carState?: State; mode: PaymentMode; lender?: string;
   car: [string, string, number, number, string]; price: number; deposit: number; vas?: ('tint' | 'ppf' | 'cam' | 'ew')[];
-  promises?: string[]; tradeIn?: [string, number]; home?: boolean; pay?: 'Card' | 'Stripe'; dlState?: State; depositH: number; steps: Step[];
+  promises?: string[]; tradeIn?: [string, number]; home?: boolean; pay?: 'Card' | 'Stripe'; dlState?: State; tiAccepted?: boolean; depositH: number; steps: Step[];
 }
 
 const SEEDS: SeedDef[] = [
@@ -58,8 +58,8 @@ const SEEDS: SeedDef[] = [
     steps: [[107, 'contract', 'recall', { recallStatus: 'No active recall' }], [106, 'contract', 'sent'], [90, 'contract', 'signed'], [100, 'payment', 'instalment'], [70, 'payment', 'final'], [69, 'payment', 'gfd'], [95, 'rwc', 'wip'], [90, 'rwc', 'complete', { rwcNumber: 'RW-2219377', rwcConfirm: true, rwcExpiry: '2027-11-11' }], [70, 'rego', 'vic'], [40, 'rego', 'complete', { regoNumber: '1XY 4ZT', regoExpiry: '2027-11-13' }], [50, 'refurb', 'qc', { promiseDone: true, detailConfirm: true }], [5, 'refurb', 'gfd', { qcPassed: true }]],
   },
   {
-    id: 'LV-7BY2', name: 'Ethan Walker', state: 'NSW', suburb: 'Chatswood', mode: 'BYO', lender: 'Angle Auto', car: ['Subaru', 'Forester 2.5i-L', 2020, 58900, 'Green'], price: 30990, deposit: 1000, tradeIn: ['2012 Holden Cruze', 4500], depositH: 140,
-    steps: [[137, 'contract', 'recall', { recallStatus: 'No active recall' }], [136, 'contract', 'sent'], [120, 'contract', 'form4'], [100, 'contract', 'signed'], [130, 'payment', 'instalment'], [90, 'payment', 'final'], [89, 'payment', 'gfd'], [128, 'rwc', 'wip'], [120, 'rwc', 'complete', { rwcNumber: 'RW-2218760', rwcConfirm: true, rwcExpiry: '2027-11-10' }], [80, 'rego', 'complete', { regoNumber: 'FRS-88P', regoExpiry: '2027-11-11' }], [90, 'refurb', 'qc', { promiseDone: true, detailConfirm: true }], [60, 'refurb', 'gfd', { qcPassed: true }], [50, 'slot', 'Today', '2:00 pm'], [2, 'delivery', 'today']],
+    id: 'LV-7BY2', name: 'Ethan Walker', state: 'NSW', suburb: 'Chatswood', mode: 'BYO', lender: 'Angle Auto', car: ['Subaru', 'Forester 2.5i-L', 2020, 58900, 'Green'], price: 30990, deposit: 1000, tradeIn: ['2012 Holden Cruze', 4500], tiAccepted: true, depositH: 140,
+    steps: [[137, 'contract', 'recall', { recallStatus: 'No active recall' }], [136, 'contract', 'sent'], [126, 'tradein', 'final', { tiPpsr: true }], [120, 'contract', 'form4'], [100, 'contract', 'signed'], [130, 'payment', 'instalment'], [90, 'payment', 'final'], [89, 'payment', 'gfd'], [128, 'rwc', 'wip'], [120, 'rwc', 'complete', { rwcNumber: 'RW-2218760', rwcConfirm: true, rwcExpiry: '2027-11-10' }], [80, 'rego', 'complete', { regoNumber: 'FRS-88P', regoExpiry: '2027-11-11' }], [90, 'refurb', 'qc', { promiseDone: true, detailConfirm: true }], [60, 'refurb', 'gfd', { qcPassed: true }], [50, 'slot', 'Today', '2:00 pm'], [2, 'delivery', 'today']],
   },
   {
     id: 'LV-3DF9', name: 'Zoe Harris', state: 'QLD', suburb: 'Toowong', mode: 'Cash', car: ['Mazda', '3 G20 Evolve', 2021, 35500, 'Machine Grey'], price: 25990, deposit: 1000, vas: ['ew', 'tint'], depositH: 170,
@@ -68,7 +68,7 @@ const SEEDS: SeedDef[] = [
   {
     id: 'LV-5TR0', name: 'Oliver King', state: 'VIC', suburb: 'Frankston', mode: 'Cars24 finance', lender: 'Plenti', car: ['Nissan', 'X-Trail ST', 2020, 70100, 'White'], price: 27490, deposit: 1000, tradeIn: ['2014 Toyota Yaris', 5200], depositH: 90,
     promises: ['Paint touch-up driver door'],
-    steps: [[87, 'contract', 'recall', { recallStatus: 'No active recall' }], [86, 'contract', 'sent'], [60, 'contract', 'form4'], [80, 'payment', 'instalment'], [79, 'rwc', 'wip'], [78, 'rwc', 'complete', { rwcNumber: 'RW-2219102', rwcConfirm: true, rwcExpiry: '2027-11-12' }], [60, 'rego', 'vic'], [30, 'rego', 'complete', { regoNumber: '2AB 7QW', regoExpiry: '2027-11-14' }], [10, 'refurb', 'qc', { promiseDone: true, detailConfirm: true, workLog: 'Door touch-up, detail' }]],
+    steps: [[87, 'contract', 'recall', { recallStatus: 'No active recall' }], [86, 'contract', 'sent'], [6, 'tradein', 'final', { tiPpsr: true, tiValue: '4800' }], [60, 'contract', 'form4'], [80, 'payment', 'instalment'], [79, 'rwc', 'wip'], [78, 'rwc', 'complete', { rwcNumber: 'RW-2219102', rwcConfirm: true, rwcExpiry: '2027-11-12' }], [60, 'rego', 'vic'], [30, 'rego', 'complete', { regoNumber: '2AB 7QW', regoExpiry: '2027-11-14' }], [10, 'refurb', 'qc', { promiseDone: true, detailConfirm: true, workLog: 'Door touch-up, detail' }]],
   },
   {
     id: 'LV-8LM4', name: 'Ruby Scott', state: 'NSW', suburb: 'Bondi', mode: 'Cash', car: ['Volkswagen', 'Golf 110TSI', 2019, 64300, 'White'], price: 24990, deposit: 1000, pay: 'Stripe', depositH: 34,
@@ -98,12 +98,14 @@ export function buildSeed(now: number): Order[] {
       depositPaid: s.deposit,
       vas: (s.vas || []).map((k) => ({ ...VAS[k] })),
       promises: s.promises || [],
-      tradeIn: s.tradeIn ? { car: s.tradeIn[0], value: s.tradeIn[1] } : undefined,
+      tradeInBooking: s.tradeIn ? { car: s.tradeIn[0], value: s.tradeIn[1] } : undefined,
       deliveryMode: s.home ? 'Home delivery' : 'Pick up',
       dl: { number: String(10000000 + i * 7919).slice(0, 8), state: s.dlState || s.state, expiry: `0${1 + (i % 9)}/202${8 + (i % 2)}`, status: s.depositH > 60 ? 'Verified' : 'Uploaded' },
       interstate: carState !== s.state,
       depositAt: now - s.depositH * HOUR,
     });
+    // older orders: the RM already answered the trade-in question in step 1
+    if (s.depositH > 5) setTradeInOpted(o, s.tradeIn ? 'Yes' : 'No', now - (s.depositH - 0.5) * HOUR);
     // replay in time order so rule-created tasks exist before they are moved
     const steps = [...s.steps].sort((a, b) => b[0] - a[0]);
     for (const st of steps) {
@@ -117,6 +119,7 @@ export function buildSeed(now: number): Order[] {
       Object.assign(t.fields, fields || {});
       move(o, t, to, JOURNEYS[j].persona, at);
     }
+    if (s.tiAccepted) acceptTradeIn(o, now - 40 * HOUR);
     return o;
   });
 }
