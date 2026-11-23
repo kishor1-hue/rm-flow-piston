@@ -4,7 +4,7 @@ import { fmtAge, gateStatus, hasGfr, isDone, isRegistered, money, outstanding, r
 import { TaskCard } from './TaskCard';
 
 export const PERSONA_JOURNEYS: Record<PersonaId, JourneyId[]> = {
-  rm: ['payment', 'contract'], refurb: ['refurb', 'vas'], rego: ['rwc', 'rego'], delivery: ['delivery', 'transit'], finops: ['payment'], cx: ['warranty', 'checkin'], tradein: ['tradein'],
+  rm: ['payment', 'byo', 'contract'], refurb: ['refurb', 'vas'], rego: ['rwc', 'rego'], delivery: ['delivery', 'transit'], finops: ['payment', 'byo'], cx: ['warranty', 'checkin'], tradein: ['tradein'],
 };
 
 export function GateDots({ o }: { o: Order }) {

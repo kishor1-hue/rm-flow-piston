@@ -4,9 +4,10 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { JOURNEYS, PERSONAS, TI_FIELDS, type TransitionDef } from './model';
 import {
   acceptTradeIn, applyDiscount, approveDiscount, disputeTradeIn, TI_CONFLICT_REASONS, setTradeInOpted, availableNext, canMove, DISCOUNT_LIMIT, fmtAge, gatesClear, gateStatus,
-  addVas, CRN_NAME, dap, DOC_LABEL, docOutdated, regenerateDoc, requestCrn, verifyDl, dlSuggest, receiveCrn, remindCrn, requestReupload, setDlCheck, type DlCheck, type DocKey, govtCharges, isDone, missingFields, money, removeVas, VAS_CATALOG, vasTotal, type PlanType, orderTotal, outstanding, recordPayment, type PaymentEntry, isRegistered, setDeliveryMode, skipStep, stageDef, task, type Order, type Task,
+  addVas, byoVerifyDeposit, financeGfd, CRN_NAME, dap, DOC_LABEL, docOutdated, regenerateDoc, requestCrn, verifyDl, dlSuggest, receiveCrn, remindCrn, requestReupload, setDlCheck, type DlCheck, type DocKey, govtCharges, isDone, missingFields, money, removeVas, VAS_CATALOG, vasTotal, type PlanType, orderTotal, outstanding, recordPayment, type PaymentEntry, isRegistered, setDeliveryMode, skipStep, stageDef, task, type Order, type Task,
 } from './engine';
 import { PrepStatus } from './Visibility';
+import { ByoLenderStep, byoNext, ByoStatusCard, ByoStatusField, type ByoEvent } from './Byo';
 import { Field } from './TaskCard';
 import { dlPng, proofPng } from './proof';
 import { payload, SchemaForm, validate, type FormValues, type SchemaPage } from './SchemaForm';
@@ -58,12 +59,14 @@ export function stepDone(o: Order, k: RmStep): boolean {
   if (k === 'promise') return !!o.rmDone.promise;
   if (k === 'discount') return !!o.rmDone.discount && o.discount?.status !== 'Awaiting approval';
   if (k === 'tradein') return o.tradeInOpted !== 'Yes' || !!o.rmDone.tradein;
-  if (k === 'balance') return isDone(pay);
+  if (k === 'balance') return o.paymentMode === 'BYO' ? financeGfd(o) : isDone(pay);
   if (k === 'prep') return isDone(task(o, 'rwc')) && isDone(task(o, 'refurb')) && isRegistered(o);
   return !!o.slot;
 }
 // The Trade-in step only exists when the customer opted in (answered in step 1).
-const stepsFor = (o: Order) => STEPS.filter((s) => s.key !== 'tradein' || o.tradeInOpted === 'Yes');
+const stepsFor = (o: Order) => STEPS.filter((s) => s.key !== 'tradein' || o.tradeInOpted === 'Yes')
+  // BYO: the balance comes from the customer's lender, so the balance step is the lender's.
+  .map((s) => (s.key === 'balance' && o.paymentMode === 'BYO' ? { ...s, label: 'Lender finance' } : s));
 export const firstOpenStep = (o: Order): RmStep => stepsFor(o).find((s) => !stepDone(o, s.key))?.key || 'delivery';
 
 function Fx({ items }: { items: string[] }) {
@@ -360,6 +363,9 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   const [spTried, setSpTried] = useState(false);
   const [vasModal, setVasModal] = useState(false);
   const [payModal, setPayModal] = useState(false);
+  const [byoOpen, setByoOpen] = useState<ByoEvent | null>(null);
+  useEffect(() => { setByoOpen(null); }, [o.id]);
+  const isByo = o.paymentMode === 'BYO' && !!o.byo;
   const [vasRow, setVasRow] = useState('');
   const [crn, setCrn] = useState('');
   const [dlZoom, setDlZoom] = useState<'' | 'front' | 'back'>('');
@@ -409,8 +415,10 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   if (step === 'deposit') {
     const a = p.stage === 'deposit' ? taskActions(p) : { primary: undefined, alts: [] };
     primary = a.primary; alts = a.alts;
+    if (isByo && p.stage === 'deposit') primary = { label: 'Deposit verified · awaiting 3P lender', run: () => act((x, at) => byoVerifyDeposit(x, at)) };
     if (!primary && !o.tradeInOpted) primary = { label: 'Continue', run: () => {}, block: 'Answer: did the customer opt in to a trade-in?' };
-    fx = p.stage === 'deposit'
+    fx = isByo ? (p.stage === 'deposit' ? ['BYO status → Awaiting Approval from 3P Lender', 'Start the lender clocks: pre-approval due in 2 business days, funds in 5', 'Car prep waits for the approval letter (GFR at Approved from 3P Lender)'] : [])
+      : p.stage === 'deposit'
       ? ['Finance ticket → First Instalment Paid', 'Stamp GFR date on the order (HubSpot DW01b)', o.interstate ? 'Create the interstate inspection task for Delivery (DW02)' : 'Create the RWC / refurb task for the Refurb team (DW02)', 'Order moves to Car prep (HubSpot deal 4: Awaiting RWC)', 'Sync GFR to OMS']
       : [];
     const bank = o.paymentMethod === 'Bank transfer';
@@ -425,7 +433,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
             </div>
           </div>
         </div>
-        <TicketStatus o={o} t={p} title={`${o.id}-${first} (Finance Ticket)`} onMove={(to) => moveTask(p, to)} />
+        {isByo ? <div style={{ marginTop: 14 }}><ByoStatusField o={o} act={act} open={byoOpen} setOpen={setByoOpen} /></div> : <TicketStatus o={o} t={p} title={`${o.id}-${first} (Finance Ticket)`} onMove={(to) => moveTask(p, to)} />}
         <div className="sec-h">Payments</div>
         <div className="tbox">
           <table className="tl-t">
@@ -433,6 +441,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
             <tbody>
               {o.payments.map((x) => {
                 const verify = pending && x.type === 'DEPOSIT' && bank;
+                if (isByo && x.type === 'LENDER_REMITTANCE') return null;
                 return (
                   <tr key={x.ref + x.at}>
                     <td>{x.type}</td><td>{methodLabel(x.method)}</td><td className="mono">{x.ref}</td><td>{fmtAge(Date.now() - x.at)} ago</td>
@@ -461,7 +470,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
             {!pending && <div className="statusline">Proof verified. First instalment confirmed and car prep has started (GFR).</div>}
           </>
         ) : (
-          <div className="statusline">Paid by {methodLabel(o.paymentMethod)}. Stripe confirmed it and moved the ticket to First Instalment Paid on its own. Nothing to verify.</div>
+          <div className="statusline">Paid by {methodLabel(o.paymentMethod)}. Stripe confirmed it and moved the ticket to {isByo ? 'Awaiting Approval from 3P Lender' : 'First Instalment Paid'} on its own. Nothing to verify.</div>
         )}
       </>
     );
@@ -834,7 +843,29 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     );
   }
 
-  if (step === 'balance') {
+  if (step === 'balance' && isByo) {
+    const nx = byoNext(o);
+    if (nx.ev === 'approve' || nx.ev === 'remit') primary = { label: nx.label, run: () => setByoOpen(nx.ev) };
+    else if (p.stage === 'remitShort') primary = { label: 'Add payment entry (customer gap)', run: () => setPayModal(true) };
+    else if (p.stage === 'deposit') primary = { label: 'Verify the deposit first', run: () => setStep('deposit') };
+    alts = [
+      { label: `Call ${first} about the lender`, run: () => onComms(`Call to ${o.customer.phone}: lender status (${stageDef(p).label}) discussed`) },
+      { label: `Email ${o.byo!.lender || 'the lender'} for an update`, run: () => onComms(`Email to ${o.byo!.lender}: status of application ${o.byo!.appNo || '(no number yet)'} for ${o.id}`) },
+      { label: 'Correct the BYO status', run: () => setByoOpen('correct') },
+      { label: 'Cancel sale', run: () => setByoOpen('cancel'), tone: 'danger' },
+    ];
+    fx = p.stage === 'awaiting' ? ['Approved from 3P lender → GFR: RWC / refurb task for Refurb', 'Approved amount short of the balance → RM told to warn the customer now']
+      : p.stage === 'approved' ? ['Remittance covers the balance → Finance GFD: VAS tasks, handover slot open, FinOps confirms funds', 'Remittance short → Lender remittance received · outstanding deposit']
+      : p.stage === 'remitShort' ? ['Customer pays the gap → outstanding $0 → Finance GFD on its own'] : [];
+    body = (
+      <>
+        <ByoLenderStep o={o} onAddPayment={() => setPayModal(true)} />
+        {payModal && <AddPaymentModal due={outstanding(o)} onClose={() => setPayModal(false)} onAdd={(amount, ref, e) => { setPayModal(false); act((x, at) => recordPayment(x, amount, ref, 'rm', at, e)); }} />}
+      </>
+    );
+  }
+
+  if (step === 'balance' && !isByo) {
     const left = outstanding(o);
     if (p.stage === 'deposit') {
       primary = { label: 'Record payment', run: () => {}, block: 'Confirm the first instalment in step 1 first' };
@@ -933,7 +964,8 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
       </div>
       <div className="ws-body">
         <div className="ws-h">{idx + 1}. {cur.label}{done && <span className="chip c-green">Done</span>}{cancelled && <span className="chip c-red">Sale cancelled</span>}</div>
-        {cur.where && <div className="ws-guide">{cur.where}</div>}
+        {cur.where && <div className="ws-guide">{isByo && cur.key === 'deposit' ? 'Finance ticket · HubSpot 01b BYO' : cur.where}</div>}
+        {isByo && step !== 'deposit' && <div style={{ marginTop: 14 }}><ByoStatusCard o={o} act={act} open={byoOpen} setOpen={setByoOpen} /></div>}
         {body}
         {fx.length > 0 && <Fx items={fx} />}
         {primary?.block && <div className="blocked">{primary.block}</div>}

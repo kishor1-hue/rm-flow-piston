@@ -348,7 +348,90 @@ New fields LeadVerse adds (not in HubSpot today): rework ETA on a failed RWC, QC
 
 ---
 
-## 10. Run it
+## 10. BYO journey (bring your own finance)
+
+BYO is the cash journey with one difference: the balance comes from the customer's own lender, not from the customer. Every RM step stays the same. The finance ticket uses HubSpot's **01b_BYO Finance Customer** pipeline instead of 01a. Sources:
+
+- HubSpot 01b stages and ticket histories (e.g. PT4Y7X-Alice, 4SHKIC-Ajay, AI3ORP-Steven).
+- The 19 Nov FinOps call (Sirivaishnavi / Kishor recording, second half).
+
+### The BYO status (the extra property)
+
+| Status (HubSpot stage) | Moved by (HubSpot today) | Evidence in LeadVerse | What it triggers |
+| --- | --- | --- | --- |
+| Deposit remittance advice received (Bank Transfer) | 01_START, bank transfer deposits only | Payment proof | RM verifies, then → Awaiting approval |
+| **Awaiting Approval from 3P Lender** | 01_START (card / Stripe) or RM. Most orders move on from here | – | Lender clocks start: pre-approval due in **2 business days**, funds in **5** (from the deposit) |
+| Approved from 3P Lender | FinOps or RM, by hand | Approval letter, lender, application no., approved amount | **GFR**: RWC / refurb task (or interstate inspection). If the approved amount is short, RM warns the customer now (R-B2) |
+| Lender remittance received · outstanding deposit (**new**) | Doesn't exist; the RM keeps the ticket at Approved | Remittance advice + amount (short of the balance) | RM collects the gap (Add payment entry). Outstanding $0 → Finance GFD on its own |
+| Remittance Advice Received (Finance GFD) | RM, by hand | Remittance advice + amount (covers the balance) | **Finance GFD**: VAS install tasks, finance gate ✓ for the handover slot, FinOps task to confirm the funds (R-B3) |
+| Loan Settled | FinOps, ticking `loan_settled_confirmation` | Funds matched in the bank account | Finance ticket closes (R-B4) |
+| Cancelled Sale | anyone | Reason | Sale cancelled |
+
+Unchanged from cash:
+- **Registration:** starts when the RWC passes, not at Finance GFD.
+- **Contract signing:** happens in parallel at any time.
+- **Discount, VAS and trade-in:** can change before and after settlement.
+- **Payment receipts:** customer receipts that arrive by email stay a manual entry.
+
+### Keeping one status when several people move it (the parallel-update problem)
+
+In HubSpot the 01b stage is one dropdown on the ticket. The RM (ticket owner) and FinOps each move it by hand, from any screen, days apart. The ticket histories show exactly this: Workflow → FinOps (Approved) → RM (Remittance) → FinOps (Settled). Because the stage is just a field, it drifts from what the RM is doing and is easy to forget once the RM has moved past step 1.
+
+LeadVerse treats it as **one status owned by the order's finance task, not by an RM step**:
+
+1. **Set once, shown everywhere.**
+   - Step 1 sets the starting value, Awaiting approval.
+   - After that, the *BYO status* card is pinned at the top of every RM step: status, lender, approved / remitted / outstanding, and both deadlines with on-time / overdue.
+   - "Update status" works from wherever the RM is. Nobody has to go back to step 1, and there is no second copy to keep in sync.
+2. **A move is an event with its evidence, not a dropdown edit.**
+   - Approved needs the approval letter and amount.
+   - Remittance needs the advice and amount; the amount decides Finance GFD or outstanding deposit.
+   - Settled needs FinOps to confirm the funds.
+   - Only the next move is offered.
+3. **Backwards only as a correction**, with a reason, kept in the history.
+4. **Downstream tasks hang off the status event**, never off which RM step is open (see "What each status opens for other teams" on the Lender finance step).
+5. **Full audit**: every move with who, when, from where (RM / FinOps / Workflow) and the evidence.
+
+### Screens (middle area on the DLS, Turbo UI)
+
+- **Step 1 · Verify deposit** gets a *BYO status* SectionCard:
+  - the Ticket status Dropdown (same values as 01b, only the next one enabled);
+  - deposit and lender, as a FetchedInfoCard.
+  
+  A bank transfer is verified as for cash ("Deposit verified · awaiting 3P lender").
+- **Pinned BYO status card** on every other step:
+  - SectionCard with a status Badge, a FetchedInfoCard (lender, approved, remitted, outstanding) and deadline Badges;
+  - an InformationMessage when the approval leaves a gap;
+  - Update status, with a Chip per move, FileUploadCard for the letter or advice, TextInputs, the live preview of what the move triggers, and a Button.
+- **Step 8 becomes "Lender finance"** (instead of Balance payment). It has four DataTables:
+  - Payments: deposit, lender remittance, customer top-ups;
+  - Price breakup: total, deposit, approved (not money yet), remitted, customer gap, outstanding;
+  - What each status opens for other teams;
+  - Status history.
+  
+  The footer runs the next move.
+- **Payment mode** (left panel, Order tab) can be changed at any step until handover, by the RM or Finance, through a confirm popup. The finance ticket moves to the new mode's pipeline and keeps what was paid. To in-house finance: Finance team task. From in-house finance: RM assigned. The website order follows, so the customer stops seeing the old mode's document steps (R-B5).
+
+### Demo orders (BYO)
+
+| Order | Shows |
+| --- | --- |
+| LV-6BY3 Alice Morgan | Bank transfer deposit to verify; step 1's BYO status property |
+| LV-1BY5 Kenji Ito | Awaiting approval, pre-approval overdue |
+| LV-8RT1 Chloe Martin | Approved from 3P lender (Latitude) with a $2,500 gap |
+| LV-4BY8 Emma Davis | Lender remittance short by $3,200: outstanding deposit |
+| LV-7BY2 Ethan Walker | Loan settled |
+
+### Open (from the call)
+
+- **Lender emails:**
+  - Lender approval letters and remittances arrive at hello.au: about 1,500 unassigned emails, and family members email too.
+  - How they reach the order in LeadVerse is still open; a separate discussion with tech.
+- **Website sync:** the payment mode change has to sync to the website (a tech dependency).
+- **Lender deadlines:** the 2 / 5 business-day deadlines aren't enforced with customers yet; the charges are undecided.
+- **Unused 01b stages:** to be cleaned up once everything is on stage.
+
+## 11. Run it
 
 ```bash
 npm --prefix app install

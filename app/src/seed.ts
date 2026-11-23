@@ -1,7 +1,7 @@
 // Invented demo orders. Each one is replayed through the engine from its deposit,
 // so tasks, timestamps and the activity feed are produced by the same rules the UI uses.
 import { JOURNEYS, type JourneyId } from './model';
-import { acceptTradeIn, bookSlot, createOrder, HOUR, move, setBypass, setTradeInOpted, task, type Order, type PaymentMode, type State, type VasItem } from './engine';
+import { acceptTradeIn, byoApprove, byoRemit, byoSettle, outstanding, bookSlot, createOrder, HOUR, move, setBypass, setTradeInOpted, task, type Order, type PaymentMode, type State, type VasItem } from './engine';
 
 type Step =
   | [number, JourneyId, string, Record<string, string | boolean>?, string?]
@@ -19,7 +19,9 @@ const VAS: Record<string, VasItem> = {
 interface SeedDef {
   id: string; name: string; state: State; suburb: string; carState?: State; mode: PaymentMode; lender?: string;
   car: [string, string, number, number, string]; price: number; deposit: number; vas?: ('tint' | 'ppf' | 'cam' | 'ew')[];
-  promises?: string[]; tradeIn?: [string, number]; home?: boolean; pay?: 'Card' | 'Stripe'; dlState?: State; tiAccepted?: boolean; depositH: number; steps: Step[];
+  promises?: string[]; tradeIn?: [string, number]; home?: boolean; pay?: 'Card' | 'Stripe' | 'Bank transfer'; dlState?: State; tiAccepted?: boolean; depositH: number; steps: Step[];
+  // BYO lender events, hours ago: approval letter (with the gap it leaves), remittance advice (short by), funds settled
+  byo?: { approve?: [number, number]; remit?: [number, number]; settle?: number };
 }
 
 const SEEDS: SeedDef[] = [
@@ -28,8 +30,17 @@ const SEEDS: SeedDef[] = [
   { id: 'LV-4ST9', name: 'Sophie Clarke', state: 'VIC', suburb: 'Brunswick', mode: 'Cash', pay: 'Card', car: ['Hyundai', 'i30 Active', 2021, 41800, 'Fluid Metal'], price: 23990, deposit: 1000, vas: ['ppf'], promises: ['Second key'], depositH: 0.8, steps: [] },
   {
     id: 'LV-8RT1', name: 'Chloe Martin', state: 'QLD', suburb: 'Chermside', mode: 'BYO', lender: 'Latitude', car: ['Hyundai', 'Tucson Elite', 2022, 33900, 'White'], price: 36990, deposit: 1000, depositH: 26,
-    steps: [[24, 'contract', 'recall'], [20, 'payment', 'instalment'], [6, 'rwc', 'wip']],
+    steps: [[24, 'contract', 'recall'], [6, 'rwc', 'wip']], byo: { approve: [20, 2500] },
   },
+  // BYO, bank transfer deposit still to verify: step 1 sets the BYO status
+  { id: 'LV-6BY3', name: 'Alice Morgan', state: 'VIC', suburb: 'Carlton', mode: 'BYO', lender: 'Macquarie', pay: 'Bank transfer', car: ['Kia', 'Seltos Sport+', 2023, 21400, 'Gravity Blue'], price: 31990, deposit: 1000, vas: ['tint'], depositH: 3, steps: [] },
+  // BYO, waiting on the lender past the 2-business-day pre-approval deadline
+  { id: 'LV-1BY5', name: 'Kenji Ito', state: 'NSW', suburb: 'Hurstville', mode: 'BYO', lender: 'Pepper Money', car: ['Toyota', 'Corolla Cross GX', 2023, 18600, 'Glacier White'], price: 34490, deposit: 1000, vas: ['ppf'], depositH: 125,
+    steps: [[74, 'contract', 'recall', { recallStatus: 'No active recall' }], [70, 'contract', 'sent', { envelope: 'DS-88340' }], [40, 'contract', 'signed']] },
+  // BYO, the lender paid less than the balance: the customer owes the difference
+  { id: 'LV-4BY8', name: 'Emma Davis', state: 'QLD', suburb: 'Indooroopilly', mode: 'BYO', lender: 'Macquarie', car: ['Mazda', 'CX-30 G25 Astina', 2022, 27300, 'Polymetal Grey'], price: 37990, deposit: 1000, vas: ['tint'], depositH: 110,
+    steps: [[106, 'contract', 'recall', { recallStatus: 'No active recall' }], [104, 'contract', 'sent'], [80, 'contract', 'signed'], [92, 'rwc', 'wip'], [70, 'rwc', 'complete', { rwcNumber: 'QLD-55410', rwcConfirm: true, rwcExpiry: '2027-11-20' }], [50, 'rego', 'qld']],
+    byo: { approve: [96, 0], remit: [8, 3200] } },
   {
     id: 'LV-5KX4', name: "Liam O'Brien", state: 'VIC', suburb: 'Box Hill', mode: 'Cars24 finance', lender: 'Plenti', car: ['Volkswagen', 'Tiguan 110TSI', 2019, 72400, 'Grey'], price: 29990, deposit: 1000, vas: ['ew'], depositH: 70,
     promises: ['Replace front tyres', 'Second key'],
@@ -58,8 +69,8 @@ const SEEDS: SeedDef[] = [
     steps: [[107, 'contract', 'recall', { recallStatus: 'No active recall' }], [106, 'contract', 'sent'], [90, 'contract', 'signed'], [100, 'payment', 'instalment'], [70, 'payment', 'final'], [69, 'payment', 'gfd'], [95, 'rwc', 'wip'], [90, 'rwc', 'complete', { rwcNumber: 'RW-2219377', rwcConfirm: true, rwcExpiry: '2027-11-11' }], [70, 'rego', 'vic'], [40, 'rego', 'complete', { regoNumber: '1XY 4ZT', regoExpiry: '2027-11-13' }], [50, 'refurb', 'qc', { promiseDone: true, detailConfirm: true }], [5, 'refurb', 'gfd', { qcPassed: true }]],
   },
   {
-    id: 'LV-7BY2', name: 'Ethan Walker', state: 'NSW', suburb: 'Chatswood', mode: 'BYO', lender: 'Angle Auto', car: ['Subaru', 'Forester 2.5i-L', 2020, 58900, 'Green'], price: 30990, deposit: 1000, tradeIn: ['2012 Holden Cruze', 4500], tiAccepted: true, depositH: 140,
-    steps: [[137, 'contract', 'recall', { recallStatus: 'No active recall' }], [136, 'contract', 'sent'], [126, 'tradein', 'final', { tiPpsr: true }], [120, 'contract', 'form4'], [100, 'contract', 'signed'], [130, 'payment', 'instalment'], [90, 'payment', 'final'], [89, 'payment', 'gfd'], [128, 'rwc', 'wip'], [120, 'rwc', 'complete', { rwcNumber: 'RW-2218760', rwcConfirm: true, rwcExpiry: '2027-11-10' }], [80, 'rego', 'complete', { regoNumber: 'FRS-88P', regoExpiry: '2027-11-11' }], [90, 'refurb', 'qc', { promiseDone: true, detailConfirm: true }], [60, 'refurb', 'gfd', { qcPassed: true }], [50, 'slot', 'Today', '2:00 pm'], [2, 'delivery', 'today']],
+    id: 'LV-7BY2', name: 'Ethan Walker', state: 'NSW', suburb: 'Chatswood', mode: 'BYO', lender: 'Angle Auto', car: ['Subaru', 'Forester 2.5i-L', 2020, 58900, 'Green'], price: 30990, deposit: 1000, tradeIn: ['2012 Holden Cruze', 4500], tiAccepted: true, depositH: 140, byo: { approve: [130, 0], remit: [90, 0], settle: 60 },
+    steps: [[137, 'contract', 'recall', { recallStatus: 'No active recall' }], [136, 'contract', 'sent'], [126, 'tradein', 'final', { tiPpsr: true }], [120, 'contract', 'form4'], [100, 'contract', 'signed'], [128, 'rwc', 'wip'], [120, 'rwc', 'complete', { rwcNumber: 'RW-2218760', rwcConfirm: true, rwcExpiry: '2027-11-10' }], [80, 'rego', 'complete', { regoNumber: 'FRS-88P', regoExpiry: '2027-11-11' }], [90, 'refurb', 'qc', { promiseDone: true, detailConfirm: true }], [60, 'refurb', 'gfd', { qcPassed: true }], [50, 'slot', 'Today', '2:00 pm'], [2, 'delivery', 'today']],
   },
   {
     id: 'LV-3DF9', name: 'Zoe Harris', state: 'QLD', suburb: 'Toowong', mode: 'Cash', car: ['Mazda', '3 G20 Evolve', 2021, 35500, 'Machine Grey'], price: 25990, deposit: 1000, vas: ['ew', 'tint'], depositH: 170,
@@ -92,7 +103,7 @@ export function buildSeed(now: number): Order[] {
       car: { make: s.car[0], model: s.car[1], year: s.car[2], km: s.car[3], colour: s.car[4], vin: 'JM0' + (s.id.replace(/\W/g, '') + 'X8812345').slice(0, 14).toUpperCase(), hub: HUBS[carState], hubState: carState },
       paymentMode: s.mode,
       paymentMethod: s.pay || (s.mode === 'Cash' ? 'Bank transfer' : 'Card'),
-      proofUrl: !s.pay && s.mode === 'Cash' ? `payment-proof/${s.id}-bank-transfer.png` : undefined,
+      proofUrl: (!s.pay && s.mode === 'Cash') || s.pay === 'Bank transfer' ? `payment-proof/${s.id}-bank-transfer.png` : undefined,
       lender: s.lender,
       price: s.price,
       depositPaid: s.deposit,
@@ -107,9 +118,17 @@ export function buildSeed(now: number): Order[] {
     // older orders: the RM already answered the trade-in question in step 1
     if (s.depositH > 5) setTradeInOpted(o, s.tradeIn ? 'Yes' : 'No', now - (s.depositH - 0.5) * HOUR);
     // replay in time order so rule-created tasks exist before they are moved
-    const steps = [...s.steps].sort((a, b) => b[0] - a[0]);
+    const byo: Step[] = [];
+    if (s.byo?.approve) byo.push([s.byo.approve[0], 'byo:approve', String(s.byo.approve[1])] as unknown as Step);
+    if (s.byo?.remit) byo.push([s.byo.remit[0], 'byo:remit', String(s.byo.remit[1])] as unknown as Step);
+    if (s.byo?.settle) byo.push([s.byo.settle, 'byo:settle'] as unknown as Step);
+    const steps = [...s.steps, ...byo].sort((a, b) => b[0] - a[0]);
     for (const st of steps) {
       const at = now - st[0] * HOUR;
+      const kind = st[1] as string;
+      if (kind === 'byo:approve') { const gap = Number(st[2]); byoApprove(o, { lender: s.lender!, appNo: 'APP-' + (481200 + i * 37), amount: outstanding(o) - gap, letter: `${s.lender!.toLowerCase().replace(/\W+/g, '-')}-approval-letter.pdf` }, 'FinOps', at); continue; }
+      if (kind === 'byo:remit') { const short = Number(st[2]); byoRemit(o, { amount: outstanding(o) - short, ref: 'RA-' + (90210 + i * 11), file: `${s.lender!.toLowerCase().replace(/\W+/g, '-')}-remittance-advice.pdf` }, 'RM', at); continue; }
+      if (kind === 'byo:settle') { byoSettle(o, at); continue; }
       if (st[1] === 'slot') { bookSlot(o, st[2] as string, st[3] as string, 'rm', at); continue; }
       if (st[1] === 'bypass') { setBypass(o, true, at); continue; }
       const [, j, to, fields, item] = st as [number, JourneyId, string, Record<string, string | boolean>?, string?];

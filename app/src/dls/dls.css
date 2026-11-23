@@ -1,0 +1,404 @@
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap");
+/* Turbo UI, the CARS24 DLS (CSPL-CARS24/turbo-ui, @cspl/* packages), for screens moved onto it.
+   A screen's action area opts in with class "dls"; dls.js writes each component's markup. Values are the DLS tokens
+   (packages/theme: primitives, the cars24 lego-* semantic set, radii), named after the token they come from.
+   The DLS has no dark theme; the dark values below only keep the prototype's own toggle readable. */
+
+@font-face{font-family:"turbo-ui-icons"; src:url("./turbo-ui-icons.woff2") format("woff2"); font-weight:normal; font-style:normal; font-display:block;}
+
+.dls{
+  /* lego semantic (cars24) */
+  --tu-text-primary:#0F172B;          /* text-primary-rest */
+  --tu-text-secondary:#62748E;        /* text-secondary-rest */
+  --tu-text-secondary-active:#45556C; /* text-secondary-active */
+  --tu-text-tertiary:#90A1B9;         /* text-tertiary-rest, text-primary-disabled */
+  --tu-text-ink:#020618;              /* slate-950, the table's cell text */
+  --tu-surface:#FFFFFF;               /* surface-light-rest */
+  --tu-surface-subtle:#F8FAFC;        /* surface-subtle-rest, surface-tertiary-disabled */
+  --tu-surface-tertiary:#F1F5F9;      /* surface-tertiary-rest */
+  --tu-border-tertiary:#E2E8F0;       /* border-tertiary-rest, border-secondary-disabled */
+  --tu-border-secondary:#CAD5E2;      /* border-secondary-rest, slate-300 */
+  --tu-brand:#4736FE;                 /* surface-brand-primary-rest, brand-blue-300 */
+  --tu-brand-hover:#4031E5;           /* surface-brand-primary-hover */
+  --tu-brand-pressed:#392BCB;
+  /* primitives */
+  --tu-brand-25:#F6F5FF; --tu-brand-50:#EDEBFF; --tu-brand-100:#E3E1FF; --tu-brand-200:#C6C1FF; --tu-brand-250:#A39AFF;
+  --tu-mint-50:#EFFFF7; --tu-mint-800:#368C61; --tu-mint-900:#2A6B4A;
+  --tu-green-100:#DCFCE7; --tu-green-600:#00A63E;
+  --tu-amber-50:#FFFBEB; --tu-amber-600:#E17100; --tu-amber-700:#BB4D00;
+  --tu-red-50:#FEF2F2; --tu-red-700:#C10007;
+  --tu-pink-50:#FFE8F7; --tu-pink-400:#FD49C0;
+  --tu-neutral-500:#737373;
+  --tu-shadow-lg:0 10px 15px -3px rgba(0,0,0,.1);
+  font-family:"Geist", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  line-height:1.36;
+}
+:root[data-lv-theme="dark"] .dls{
+  --tu-text-primary:#F1F5F9; --tu-text-ink:#F1F5F9; --tu-text-secondary:#90A1B9; --tu-text-secondary-active:#CAD5E2; --tu-text-tertiary:#62748E;
+  --tu-surface:#181B25; --tu-surface-subtle:#1E2230; --tu-surface-tertiary:#262B38;
+  --tu-border-tertiary:#2A2F3D; --tu-border-secondary:#3A4153;
+  --tu-brand:#7C6CFF; --tu-brand-hover:#8F82FF; --tu-brand-pressed:#6B5CF0;
+  --tu-brand-25:#1F1B3D; --tu-brand-50:#262049; --tu-brand-100:#2E2759; --tu-brand-200:#3D3478; --tu-brand-250:#5B4FC0;
+  --tu-mint-50:#12301F; --tu-mint-800:#6EE7A0; --tu-mint-900:#6EE7A0;
+  --tu-green-100:#12301F; --tu-green-600:#34B26A;
+  --tu-amber-50:#332711; --tu-amber-600:#F2C14E; --tu-amber-700:#F2C14E;
+  --tu-red-50:#3A1A1D; --tu-red-700:#FCA5A5;
+  --tu-pink-50:#3B1529; --tu-pink-400:#F472B6;
+  --tu-neutral-500:#98A2B8;
+}
+
+/* Icons: the DLS IcoMoon font (getIconClass(name, size)) */
+.tui{font-family:"turbo-ui-icons" !important; font-style:normal; font-weight:normal; font-variant:normal; text-transform:none; line-height:1; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; display:inline-block; flex:none;}
+.tui.icon-xs{font-size:12px;} .tui.icon-sm{font-size:14px;} .tui.icon-base{font-size:16px;} .tui.icon-lg{font-size:18px;} .tui.icon-xl{font-size:20px;} .tui.icon-2xl{font-size:24px;}
+/* icons:start */
+.tui-check-outline::before{content:"\ec65";}
+.tui-whatsapp::before{content:"\ea42";}
+.tui-email-envelope-outline::before{content:"\eb71";}
+.tui-bubble-text-message-chat-outline::before{content:"\eb6f";}
+.tui-copy::before{content:"\e921";}
+.tui-arrow-out-of-box-upload-share-outline::before{content:"\ea6c";}
+.tui-file-text-outline::before{content:"\ebab";}
+.tui-edit-outline::before{content:"\eb4e";}
+.tui-wallet-3-outline::before{content:"\e9ea";}
+.tui-car-outline::before{content:"\ec34";}
+.tui-car-check-outline::before{content:"\ec9f";}
+.tui-chevron-down-small-outline::before{content:"\ec83";}
+.tui-key-outline::before{content:"\ec2c";}
+.tui-flag-2-priority-outlined::before{content:"\ea62";}
+.tui-location-outline::before{content:"\ebbf";}
+.tui-home-round-door-outline::before{content:"\ec3f";}
+.tui-tag-sale-outlined::before{content:"\e988";}
+.tui-checklist-list-outline::before{content:"\ea6f";}
+.tui-credit-card-2-card-payment-outline::before{content:"\e9ee";}
+.tui-bank-outline::before{content:"\eaaa";}
+.tui-check-badge-outline::before{content:"\ea5a";}
+.tui-shield-check-line::before{content:"\ea04";}
+.tui-package-block-delivery-outline::before{content:"\e9ce";}
+.tui-clock-timer-outline::before{content:"\ebde";}
+.tui-eye-open-show-see-reveal-look-visible-outline::before{content:"\ea8a";}
+.tui-receipt-check-outline::before{content:"\e91e";}
+.tui-link::before{content:"\e973";}
+.tui-send-line::before{content:"\eab0";}
+.tui-notepad-notes-outline::before{content:"\eb16";}
+.tui-circle-check-filled::before{content:"\ec60";}
+.tui-info-outline::before{content:"\ebb7";}
+.tui-arrow-right-outline::before{content:"\ec77";}
+.tui-arrow-left-outline::before{content:"\ec79";}
+.tui-plus-large-outline::before{content:"\ec51";}
+.tui-close-line::before{content:"\ec59";}
+.tui-calendar-check-outline::before{content:"\e918";}
+.tui-sparkle-filled::before{content:"\e9ef";}
+.tui-wishlist-outline::before{content:"\eabb";}
+.tui-arrow-right-left-sort1-switchhorizontal-outline::before{content:"\ea92";}
+.tui-coin-dollar-currency-money-outline::before{content:"\ebd1";}
+.tui-money-hand-coins-pay-outline::before{content:"\ebcb";}
+.tui-lock-private-outline::before{content:"\ea00";}
+.tui-people-circle-user-circle-avatar-profile-outline::before{content:"\ea16";}
+.tui-calendar-line::before{content:"\ebe5";}
+.tui-camera-picture-image-outline::before{content:"\eadd";}
+.tui-microphone-outline::before{content:"\ebaa";}
+/* icons:end */
+
+/* Badge (@cspl/badge), size xs, curve radius; tones subtle */
+.tu-badge{display:inline-flex; align-items:center; gap:4px; height:24px; padding:0 6px; border-radius:6px; font-size:12px; font-weight:500; white-space:nowrap; flex:none;}
+.tu-badge.s{height:20px; padding:0 8px;}
+.tu-badge.neutral{background:var(--tu-surface-subtle); color:var(--tu-text-secondary);}
+.tu-badge.information{background:var(--tu-brand-50); color:var(--tu-brand);}
+.tu-badge.success{background:var(--tu-mint-50); color:var(--tu-mint-900);}
+.tu-badge.warning{background:var(--tu-amber-50); color:var(--tu-amber-600);}
+.tu-badge.error{background:var(--tu-red-50); color:var(--tu-red-700);}
+.tu-badge .tui{font-size:12px;}
+
+/* PaymentDetailsCard (@cspl/payment-details-card), the breakup rows: label left, value right, a value action (copy) before it */
+.tu-pay{display:flex; flex-direction:column; gap:6px; padding:12px; border-radius:12px; background:var(--tu-surface); border:.5px solid var(--tu-border-tertiary);}
+.tu-pay.shadow{box-shadow:0 4px 12px 0 rgba(0,0,0,.08);}
+.tu-pay .it{display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:13px; color:var(--tu-text-secondary); min-width:0;}
+.tu-pay .it > span{white-space:nowrap;}
+.tu-pay .it .v{display:flex; align-items:center; gap:6px; color:var(--tu-text-primary); font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.tu-pay .va{display:inline-flex; align-items:center; border:none; background:none; padding:0; color:var(--tu-text-primary); cursor:pointer;}
+.tu-pay .va .tui{font-size:14px;}
+.tu-pay .va.ok{color:var(--tu-mint-800);}
+.tu-pay .sep{height:0; margin:2px 0; border-top:1px dashed var(--tu-border-tertiary);}
+.tu-pay .it.hl{font-size:15px; font-weight:600; color:var(--tu-text-primary);}
+.tu-pay .it.hl .v{font-weight:600;}
+
+/* Chip (@cspl/chip), size default, rounded; active with chipTheme Green */
+.tu-chips{display:flex; gap:8px; flex-wrap:wrap;}
+.tu-chip{display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:6px 8px; border-radius:8px; border:1px solid var(--tu-border-tertiary); background:var(--tu-surface); color:var(--tu-text-primary); font-family:inherit; font-size:13px; font-weight:500; white-space:nowrap; cursor:pointer; transition:background-color .15s, border-color .15s, box-shadow .15s;}
+.tu-chip:hover{background:var(--tu-surface-subtle); border-color:var(--tu-border-secondary); box-shadow:0 1px 3px 0 rgba(0,0,0,.1);}
+.tu-chip .tui{font-size:14px;}
+.tu-chip .ok{display:none; align-items:center; gap:2px; color:var(--tu-mint-900); font-weight:600;}
+.tu-chip.on{background:var(--tu-brand-25); border-color:var(--tu-brand); color:var(--tu-brand);}
+.tu-chip.green.on{background:var(--tu-green-100); border-color:var(--tu-mint-800); color:var(--tu-text-primary);}
+.tu-chip.on .ok{display:inline-flex;}
+
+/* FileUploadCard (@cspl/file-upload-card): the surface, a text column and the 80px dashed upload button */
+.tu-fuc{display:flex; flex-direction:column; gap:12px; padding:12px; border-radius:16px; border:.5px solid var(--tu-border-tertiary); background:var(--tu-surface);}
+.tu-fuc .row{display:flex; align-items:center; gap:24px;}
+.tu-fuc .tx{flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; align-items:flex-start;}
+.tu-fuc .tt{display:flex; align-items:center; gap:4px; flex-wrap:wrap;}
+.tu-fuc .tt b{font-size:15px; font-weight:600; color:var(--tu-text-primary);}
+.tu-fuc .tx p{margin:0; font-size:13px; color:var(--tu-text-secondary); overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;}
+.tu-fuc .tx .tu-link{margin-top:4px;}
+.tu-fuc .up{position:relative; width:80px; height:80px; flex:none; display:inline-flex; align-items:center; justify-content:center; border-radius:14px; border:1px dashed var(--tu-brand); background:var(--tu-brand-25); cursor:pointer; overflow:visible;}
+.tu-fuc .up .in{display:inline-flex; flex-direction:column; align-items:center; gap:4px; color:var(--tu-text-primary);}
+.tu-fuc .up .in span{font-size:9px; line-height:14px; font-weight:500;}
+.tu-fuc .up .doc{display:none; position:absolute; inset:0; border-radius:14px; flex-direction:column; align-items:center; justify-content:center; gap:4px; background:var(--tu-pink-50); color:var(--tu-text-primary);}
+.tu-fuc .up .doc span{font-size:9px; line-height:14px; font-weight:500;}
+.tu-fuc .up .corner{display:none; position:absolute; right:-6px; bottom:-6px; width:28px; height:28px; border-radius:14px; border:2px solid var(--tu-surface); background:var(--tu-brand); color:#fff; align-items:center; justify-content:center;}
+.tu-fuc .up.done{border-color:var(--tu-pink-400); background:var(--tu-pink-50);}
+.tu-fuc .up.done .in{visibility:hidden;}
+.tu-fuc .up.done .doc, .tu-fuc .up.done .corner{display:flex;}
+
+/* CarContextCard (@cspl/car-context-card): media, title and subtitle; the status badge sits on the right */
+.tu-ccc{position:relative; display:flex; align-items:center; gap:12px; padding:8px 12px; border-radius:16px; border:.5px solid var(--tu-border-secondary); background:var(--tu-surface);}
+.tu-ccc .md{width:100px; height:60px; border-radius:8px; display:flex; align-items:center; justify-content:center; color:rgba(15,23,43,.45); flex:none;}
+.tu-ccc .md .tui{font-size:30px;}
+.tu-ccc .cx{flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:2px;}
+.tu-ccc .cx b{font-size:15px; font-weight:600; color:var(--tu-text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.tu-ccc .cx small{font-size:11px; font-weight:500; color:var(--tu-text-secondary);}
+
+/* Dropdown (@cspl/dropdown), size medium: label above, the trigger with a chevron */
+.tu-dd{display:flex; flex-direction:column; gap:8px; width:100%;}
+.tu-dd label{font-size:15px; color:var(--tu-text-primary); display:flex; align-items:center; gap:4px;}
+.tu-dd .trig{position:relative; display:flex; align-items:center;}
+.tu-dd select{appearance:none; -webkit-appearance:none; width:100%; height:40px; padding:0 36px 0 16px; border-radius:12px; border:1px solid var(--tu-border-secondary); background:var(--tu-surface); color:var(--tu-text-primary); font-family:inherit; font-size:15px; cursor:pointer;}
+.tu-dd select:focus{outline:none; border-color:var(--tu-brand);}
+.tu-dd .trig .tui{position:absolute; right:12px; pointer-events:none; color:var(--tu-text-primary); font-size:16px;}
+
+/* LinkButton (@cspl/link-button), tone brand, size sm */
+.tu-link{display:inline-flex; align-items:center; gap:4px; padding:0; border:none; background:transparent; font-family:inherit; font-size:13px; font-weight:600; color:var(--tu-brand); cursor:pointer; white-space:nowrap;}
+.tu-link:active{color:var(--tu-brand-hover);}
+
+/* SectionCard (@cspl/section-card): a title, subtitle and badge over its items; framed is the card display */
+.tu-sec{display:flex; flex-direction:column; gap:16px; color:var(--tu-text-primary);}
+.tu-sec.framed{padding:20px; border-radius:16px; border:1px solid var(--tu-border-tertiary); background:var(--tu-surface);}
+.tu-sec .hd{display:flex; align-items:flex-start; justify-content:space-between; gap:12px;}
+.tu-sec .hd .tx{display:flex; flex-direction:column; gap:4px; min-width:0;}
+.tu-sec .hd h4{margin:0; font-size:17px; line-height:1.36; font-weight:600; color:var(--tu-text-primary);}
+.tu-sec .hd p{margin:0; font-size:14px; line-height:1.36; color:var(--tu-text-secondary);}
+.tu-sec .grid{display:grid; gap:16px; min-width:0;}
+.tu-sec .grid > *{min-width:0;}
+
+/* DataTable (@cspl/table): the shell, a slate header row, 54px body rows; a cell's sub text below its value.
+   The price breakup's own row renderers: a sum (bold on the subtle surface), a group, its sub-rows and the balance */
+.tu-table{display:flex; flex-direction:column; gap:12px; width:100%;}
+.tu-table .shell{overflow:hidden; border-radius:12px; border:1px solid var(--tu-border-tertiary); background:var(--tu-surface);}
+.tu-table table{width:100%; border-collapse:collapse;}
+.tu-table thead tr{background:var(--tu-surface-tertiary); border-bottom:1px solid var(--tu-border-tertiary);}
+.tu-table th{height:34px; padding:0 12px; font-size:14px; font-weight:400; color:var(--tu-text-ink); white-space:nowrap;}
+.tu-table tbody tr{border-bottom:1px solid var(--tu-border-tertiary); background:var(--tu-surface); transition:background-color .15s;}
+.tu-table tbody tr:last-child{border-bottom:0;}
+.tu-table tbody tr:hover{background:var(--tu-brand-100);}
+.tu-table td{height:54px; padding:8px 12px; font-size:14px; font-weight:400; color:var(--tu-text-ink); vertical-align:middle;}
+.tu-table .left{text-align:left;} .tu-table .right{text-align:right;} .tu-table .center{text-align:center;}
+.tu-table td .p{display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.tu-table td .s{display:block; margin-top:2px; font-size:12px; color:var(--tu-text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.tu-table td .tu-badge + .s{margin-top:4px;}
+.tu-table tr.sum{background:var(--tu-surface-subtle);}
+.tu-table tr.sum td, .tu-table tr.grp td, .tu-table tr.due td{font-weight:600;}
+.tu-table tr.sub td{height:34px; padding-top:4px; padding-bottom:4px; font-size:13px; color:var(--tu-text-secondary);}
+.tu-table tr.sub td:first-child{padding-left:28px;}
+.tu-table tr.due.paid{background:var(--tu-mint-50);}
+.tu-table tr.due.paid td{color:var(--tu-mint-900);}
+
+/* the action area in the scope: its head in DLS type on the subtle surface, the cards stacked */
+.v2-content.dls{background:var(--tu-surface-subtle);}
+.dls .v2-ch{margin-bottom:16px;}
+.dls .v2-ch h3{font-size:17px; line-height:22px; font-weight:600; color:var(--tu-text-primary);}
+.dls .v2-ch p{margin-top:4px; font-size:13px; line-height:18px; color:var(--tu-text-secondary);}
+.dls .tu-stack{display:flex; flex-direction:column; gap:16px;}
+
+/* NotchTabs (@cspl/notch-tabs): text-base medium tabs on a 2px hairline, a 4px brand bar under the active one */
+.tu-notch{display:flex; overflow-x:auto; scrollbar-width:none; border-bottom:2px solid var(--tu-surface-tertiary);}
+.tu-notch::-webkit-scrollbar{display:none;}
+.tu-notch button{position:relative; flex:none; padding:10px 14px 12px; margin-bottom:-2px; border:none; border-bottom:2px solid transparent; background:none; font-family:inherit; font-size:15px; font-weight:500; line-height:20px; color:var(--tu-text-secondary); white-space:nowrap; cursor:pointer;}
+.tu-notch button.on{color:var(--tu-text-primary);}
+.tu-notch button.on::after{content:""; position:absolute; left:0; right:0; bottom:-2px; height:4px; border-radius:4px 4px 0 0; background:var(--tu-brand);}
+.tu-panel{padding-top:16px;}
+.tu-panel > * + *{margin-top:12px;}
+
+/* SegmentTabs (@cspl/segment-tabs), light, md: the slate track, the active segment on a white slider */
+.tu-seg{display:flex; padding:4px; border-radius:16px; background:var(--tu-surface-tertiary);}
+.tu-seg button{flex:1; min-width:0; height:36px; padding:0 16px; border:1px solid transparent; border-radius:12px; background:transparent; font-family:inherit; font-size:14px; font-weight:500; color:var(--tu-text-secondary); cursor:pointer; white-space:nowrap; transition:background-color .2s, color .2s;}
+.tu-seg button.on{background:var(--tu-surface); border-color:var(--tu-border-secondary); box-shadow:0 4px 6px -1px rgba(0,0,0,.1); color:var(--tu-text-primary); font-weight:600;}
+
+/* FetchedInfoCard (@cspl/fetched-info-card): the header row on gray-50, then the items, label over value */
+.tu-fic{overflow:hidden; border-radius:12px; border:.5px solid var(--tu-border-secondary); background:var(--tu-surface);}
+.tu-fic .hd{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 12px; background:var(--tu-surface-subtle);}
+.tu-fic .hd b{display:block; font-size:15px; font-weight:600; line-height:20px; color:var(--tu-text-primary);}
+.tu-fic .hd small{display:block; font-size:11px; font-weight:500; color:var(--tu-text-secondary);}
+.tu-fic .items{display:grid;}
+.tu-fic .items.c2{grid-template-columns:repeat(2,minmax(0,1fr));} .tu-fic .items.c3{grid-template-columns:repeat(3,minmax(0,1fr));} .tu-fic .items.c1{grid-template-columns:1fr;}
+.tu-fic .it{display:flex; flex-direction:column; gap:2px; padding:8px 12px; border-top:.5px solid var(--tu-border-secondary); min-width:0;}
+.tu-fic .it small{font-size:11px; font-weight:500; line-height:17px; color:var(--tu-text-secondary);}
+.tu-fic .it b{font-size:15px; font-weight:600; line-height:20px; color:var(--tu-text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.tu-fic .it .tu-badge{align-self:flex-start;}
+
+/* Stepper (@cspl/stepper), variant default: 36px markers, a 2px connector, the label and description centred under */
+.tu-stepper{display:flex; align-items:flex-start; margin:0; padding:4px 40px 0; list-style:none;}
+.tu-stepper .st{display:flex; flex-direction:column; align-items:flex-start; gap:12px; flex:1; min-width:1px;}
+.tu-stepper .st:last-child{flex:none;}
+.tu-stepper .trk{display:flex; align-items:center; width:100%;}
+.tu-stepper .mk{display:flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:9999px; flex:none; background:var(--tu-brand-200); color:#020618;}
+.tu-stepper .st.active .mk{background:var(--tu-brand); color:#fff; box-shadow:0 0 0 4px var(--tu-brand-100);}
+.tu-stepper .st.completed .mk{background:var(--tu-green-600); color:#fff;}
+.tu-stepper .cn{flex:1; min-width:1px; height:2px; background:var(--tu-brand-200);}
+.tu-stepper .st.completed .cn{background:var(--tu-mint-800);}
+.tu-stepper .tx{display:flex; flex-direction:column; align-items:center; gap:2px; width:36px; white-space:nowrap;}
+.tu-stepper .tx b{font-size:14px; line-height:20px; font-weight:400; color:var(--tu-text-secondary);}
+.tu-stepper .st.active .tx b{font-weight:600; color:var(--tu-brand);}
+.tu-stepper .st.completed .tx b{font-weight:600; color:var(--tu-mint-800);}
+.tu-stepper .tx small{font-size:12px; line-height:16px; font-weight:500; color:var(--tu-neutral-500);}
+.tu-stepper .st.skip{opacity:.5;}
+
+/* ChoiceTile (@cspl/choice-tile): a 16px-radius tile with the hairline ring, the dark ring once selected */
+.tu-tiles{display:grid; gap:8px;}
+.tu-tile{position:relative; display:flex; flex-direction:column; align-items:flex-start; gap:2px; min-height:64px; padding:10px 12px; border:none; border-radius:16px; background:var(--tu-surface); box-shadow:0 2px 2px rgba(0,0,0,.04), inset 0 0 0 .5px var(--tu-border-secondary); font-family:inherit; text-align:left; cursor:pointer;}
+.tu-tile .tui{color:var(--tu-text-secondary); margin-bottom:4px;}
+.tu-tile b{font-size:13px; font-weight:500; color:var(--tu-text-primary);}
+.tu-tile small{font-size:11px; color:var(--tu-text-secondary);}
+.tu-tile.on{box-shadow:inset 0 0 0 1px var(--tu-text-primary);}
+.tu-tile.on .tui{color:var(--tu-brand);}
+
+/* Checkbox (@cspl/checkbox), md: 20px box, 6px radius, brand when checked */
+.tu-cb{display:flex; align-items:center; gap:10px; min-height:32px; cursor:pointer; font-size:14px; color:var(--tu-text-primary);}
+.tu-cb .box{display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; flex:none; border-radius:6px; border:1px solid var(--tu-border-secondary); background:var(--tu-surface); color:transparent; transition:background-color .2s;}
+.tu-cb.on .box{background:var(--tu-brand); border-color:var(--tu-brand); color:#fff;}
+.tu-cb .lb{flex:1; min-width:0; display:flex; flex-direction:column;}
+.tu-cb .lb small{font-size:12px; color:var(--tu-text-secondary);}
+.tu-cb .vl{font-weight:500; white-space:nowrap;}
+.tu-list{display:flex; flex-direction:column; padding:4px 12px; border-radius:12px; border:.5px solid var(--tu-border-secondary); background:var(--tu-surface);}
+.tu-list > *{padding:6px 0;} .tu-list > * + *{border-top:.5px solid var(--tu-border-tertiary);}
+
+/* TextInput (@cspl/text-input): label over a 44px field */
+.tu-ti{display:flex; flex-direction:column; gap:6px; min-width:0;}
+.tu-ti label{font-size:14px; color:var(--tu-text-primary);}
+.tu-ti input, .tu-ti textarea{height:44px; padding:0 14px; border-radius:12px; border:1px solid var(--tu-border-secondary); background:var(--tu-surface); color:var(--tu-text-primary); font-family:inherit; font-size:15px; min-width:0;}
+.tu-ti textarea{height:72px; padding:10px 14px; resize:none;}
+.tu-ti input:focus, .tu-ti textarea:focus{outline:none; border-color:var(--tu-brand);}
+.tu-row2{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px;}
+.tu-row3{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px;}
+
+/* Coupon (@cspl/coupon): the brand strip with the value turned on its side, the card, a dashed divider */
+.tu-coupon{display:flex; min-height:96px;}
+.tu-coupon .dec{position:relative; display:flex; align-items:center; justify-content:center; width:45px; flex:none; border-radius:16px 0 0 16px; background:var(--tu-brand); overflow:hidden;}
+.tu-coupon .dec span{transform:rotate(-90deg); white-space:nowrap; font-size:15px; font-weight:600; color:#fff;}
+.tu-coupon .cd{flex:1; min-width:0; display:flex; flex-direction:column; justify-content:space-between; gap:8px; padding:12px; border:1px solid var(--tu-border-tertiary); border-left:0; border-radius:0 20px 20px 0; background:linear-gradient(90deg, color-mix(in srgb, var(--tu-brand-200) 20%, transparent) 14%, var(--tu-surface) 95%);}
+.tu-coupon .cd > b{font-size:15px; font-weight:600; line-height:20px; color:var(--tu-text-primary);}
+.tu-coupon .dv{border-top:.5px dashed var(--tu-border-secondary);}
+.tu-coupon .ft{display:flex; align-items:center; gap:20px;}
+.tu-coupon .ft span{display:flex; flex-direction:column;}
+.tu-coupon .ft small{font-size:11px; color:var(--tu-text-secondary);}
+.tu-coupon .ft b{font-size:13px; font-weight:600; color:var(--tu-text-primary);}
+.tu-coupon .ft .tu-link, .tu-coupon .ft .tu-badge{margin-left:auto;}
+.tu-coupons{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px;}
+
+/* AddressCard (@cspl/address-card), desktop-compact */
+.tu-addr{display:flex; flex-direction:column; gap:4px; padding:12px; border-radius:12px; border:1px solid var(--tu-border-tertiary); background:var(--tu-surface);}
+.tu-addr .tt{display:flex; align-items:center; gap:8px;}
+.tu-addr .tt b{font-size:15px; font-weight:600; color:var(--tu-text-primary);}
+.tu-addr .tt .tu-link{margin-left:auto;}
+.tu-addr p{margin:0; padding-left:24px; font-size:13px; color:var(--tu-text-secondary);}
+
+/* PaymentTile (@cspl/payment-method-tile): the 48px logo square, name and subtitle, a radio */
+.tu-ptiles{display:flex; flex-direction:column; overflow:hidden; border-radius:12px; border:.5px solid var(--tu-border-secondary);}
+.tu-ptile{display:flex; align-items:center; gap:12px; padding:12px; border:none; background:var(--tu-surface); font-family:inherit; text-align:left; cursor:pointer;}
+.tu-ptile + .tu-ptile{border-top:.5px solid var(--tu-border-tertiary);}
+.tu-ptile .lg{display:flex; align-items:center; justify-content:center; width:48px; height:48px; flex:none; border-radius:6px; background:var(--tu-surface-subtle); color:var(--tu-text-primary);}
+.tu-ptile .tx{flex:1; min-width:0; display:flex; flex-direction:column; gap:4px;}
+.tu-ptile .tx b{font-size:15px; font-weight:600; line-height:18px; color:var(--tu-text-primary);}
+.tu-ptile .tx small{font-size:11px; line-height:17px; color:var(--tu-text-secondary);}
+.tu-ptile .rd{width:20px; height:20px; flex:none; border-radius:9999px; border:1px solid var(--tu-border-secondary);}
+.tu-ptile.on .rd{border:6px solid var(--tu-brand);}
+
+/* NoDataFound (@cspl/no-data-found), desktop-compact */
+.tu-nodata{display:flex; flex-direction:column; align-items:center; gap:6px; padding:28px 40px; text-align:center; color:var(--tu-text-tertiary);}
+.tu-nodata b{font-size:15px; font-weight:600; color:var(--tu-text-primary);}
+.tu-nodata small{font-size:13px; color:var(--tu-text-secondary);}
+.tu-nodata .tu-btn{margin-top:6px;}
+
+/* Button (@cspl/button): small 32px (8px radius) and medium 40px (12px radius); primary, secondary, tertiary */
+.tu-btn{display:inline-flex; align-items:center; justify-content:center; gap:4px; border:1px solid transparent; font-family:inherit; font-weight:600; white-space:nowrap; cursor:pointer; transition:background-color .2s, border-color .2s;}
+.tu-btn.small{height:32px; padding:0 12px; border-radius:8px; font-size:12px;}
+.tu-btn.medium{height:40px; padding:0 14px; border-radius:12px; font-size:15px;}
+.tu-btn.primary{background:var(--tu-brand); color:#fff;} .tu-btn.primary:hover{background:var(--tu-brand-hover);}
+.tu-btn.secondary{background:var(--tu-surface); border-color:var(--tu-brand); color:var(--tu-brand);} .tu-btn.secondary:hover{border-color:var(--tu-brand-hover); color:var(--tu-brand-hover);}
+.tu-btn.tertiary{background:var(--tu-brand-25); color:var(--tu-brand);} .tu-btn.tertiary:hover{background:var(--tu-brand-50);}
+.tu-btn:disabled{background:var(--tu-surface-subtle); border-color:var(--tu-border-tertiary); color:var(--tu-text-tertiary); cursor:not-allowed;}
+.tu-btns{display:flex; align-items:center; gap:8px;} .tu-btns .sp{flex:1;}
+
+/* the success header (DoSuccessHeader's layout, on a light surface) */
+.tu-success{display:flex; flex-direction:column; align-items:center; gap:6px; padding:8px 0 4px; text-align:center;}
+.tu-success .bd{display:flex; align-items:center; justify-content:center; width:56px; height:56px; border-radius:9999px; background:var(--tu-mint-50); color:var(--tu-mint-800); margin-bottom:6px;}
+.tu-success b{font-size:19px; font-weight:600; color:var(--tu-text-primary);}
+.tu-success small{font-size:13px; color:var(--tu-text-secondary);}
+
+/* the SA task's layouts: the checkout's steps beside the order summary */
+.sa-co{display:grid; grid-template-columns:minmax(0,1fr) 260px; gap:16px; align-items:start;}
+.sa-pane{display:flex; flex-direction:column; gap:14px;}
+.sa-pane[hidden]{display:none !important;}
+.sa-k{font-size:13px; font-weight:600; color:var(--tu-text-primary);}
+.sa-total{display:flex; align-items:center; justify-content:space-between; padding:4px 2px; font-size:14px; color:var(--tu-text-secondary);}
+.sa-total b{font-size:15px; color:var(--tu-text-primary);}
+.sa-note{display:flex; align-items:flex-start; gap:8px; font-size:14px; color:var(--tu-text-primary);}
+.sa-note .tui{color:var(--tu-text-secondary); margin-top:2px;}
+.tu-ccc .tu-cb{min-height:0;}
+.tu-ccc > .tu-badge + .tu-cb, .tu-ccc > .tu-badge + .tu-badge{margin-left:4px;}
+.sa-steps{padding:16px 12px 14px;}
+
+/* DateSlot (@cspl/date-slot), desktop-compact: a 68px day tile, the day over the date */
+.tu-dslots{display:flex; gap:8px; overflow-x:auto; scrollbar-width:none;}
+.tu-dslot{display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; min-width:72px; height:68px; padding:12px 16px; border-radius:12px; border:1px solid var(--tu-border-tertiary); background:var(--tu-surface); font-family:inherit; cursor:pointer; flex:none;}
+.tu-dslot small{font-size:14px; line-height:20px; font-weight:500; color:var(--tu-text-secondary);}
+.tu-dslot b{font-size:16px; line-height:24px; font-weight:600; color:var(--tu-text-primary);}
+.tu-dslot.on{border-color:var(--tu-brand); background:var(--tu-brand-25);}
+.tu-dslot.on small, .tu-dslot.on b{color:var(--tu-brand);}
+.tu-dslot:disabled{background:var(--tu-border-tertiary); border-color:transparent; cursor:not-allowed;}
+.tu-dslot:disabled small, .tu-dslot:disabled b{color:var(--tu-text-tertiary);}
+/* TimeSlot (@cspl/time-slot), desktop-compact: 56px time tiles */
+.tu-tslots{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px;}
+.tu-tslot{display:flex; flex-direction:column; align-items:center; justify-content:center; gap:0; height:56px; padding:0 12px; border-radius:12px; border:1px solid var(--tu-border-tertiary); background:var(--tu-surface); font-family:inherit; font-size:15px; font-weight:500; color:var(--tu-text-primary); cursor:pointer;}
+.tu-tslot small{font-size:11px; font-weight:400; color:var(--tu-text-secondary);}
+.tu-tslot.on{border-color:var(--tu-brand); background:var(--tu-brand-25); color:var(--tu-brand);}
+.tu-tslot:disabled{background:var(--tu-border-tertiary); border-color:transparent; color:var(--tu-text-tertiary); cursor:not-allowed;}
+.tu-tslot:disabled small{color:var(--tu-text-tertiary);}
+/* the reminder call: a label over each input */
+.tdr-f{display:flex; flex-direction:column; gap:8px;}
+.tdr-f .tu-chips .tu-chip.on{font-weight:600;}
+.tu-tile.lbl{min-height:44px; justify-content:center;}
+
+/* ---- additions for the RM flow (React port) ---- */
+/* InformationMessage (@cspl/information-message), background on: icon + 13px secondary text on the feedback surface */
+.tu-info{display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:8px; font-size:13px; line-height:18px; color:var(--tu-text-secondary);}
+.tu-info.neutral{background:var(--tu-surface-subtle);} .tu-info.neutral .tui{color:var(--tu-text-secondary);}
+.tu-info.information{background:var(--tu-brand-50);} .tu-info.information .tui{color:var(--tu-brand);}
+.tu-info.success{background:var(--tu-mint-50);} .tu-info.success .tui{color:var(--tu-mint-800);}
+.tu-info.warning{background:var(--tu-amber-50);} .tu-info.warning .tui{color:var(--tu-amber-600);}
+.tu-info.error{background:var(--tu-red-50);} .tu-info.error .tui{color:var(--tu-red-700);}
+.tu-info span{flex:1; min-width:0;}
+.tu-hd-r{display:flex; align-items:center; gap:8px; flex:none;}
+.tu-hint{font-size:12px; color:var(--tu-text-secondary);}
+.tu-ti-pre{display:flex; align-items:center; border:1px solid var(--tu-border-secondary); border-radius:12px; background:var(--tu-surface); overflow:hidden;}
+.tu-ti-pre span{padding:0 0 0 14px; color:var(--tu-text-secondary); font-size:15px;}
+.tu-ti-pre input{border:0 !important; flex:1; padding-left:4px !important;}
+.tu-ti input:focus{outline:none; border-color:var(--tu-brand);}
+.dls{font-size:14px; color:var(--tu-text-primary);}
+.dls .tu-row2{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px;}
+.dls .tu-row3{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px;}
+@media (max-width:860px){ .dls .tu-row2, .dls .tu-row3{grid-template-columns:1fr;} }
+
+/* BYO status card and its update form (RM flow) */
+.byo-sub{margin-left:8px; font-size:12px; font-weight:500; color:var(--tu-text-tertiary);}
+.byo-gap{color:var(--tu-amber-600); font-weight:500; font-size:13px;}
+.byo-dues{display:flex; align-items:center; gap:8px 12px; flex-wrap:wrap; font-size:13px; color:var(--tu-text-secondary);}
+.byo-dues span:nth-child(3){margin-left:12px;}
+.byo-upd{display:flex; flex-direction:column; gap:16px; padding-top:16px; border-top:1px dashed var(--tu-border-tertiary);}
+.byo-act{display:flex; align-items:flex-end; justify-content:space-between; gap:16px;}
+.byo-act .tu-dd{max-width:220px;}
+.tu-chip:disabled{opacity:.45; cursor:not-allowed; box-shadow:none;}
+.tu-btn:disabled{opacity:.5; cursor:not-allowed;}
+.dls .mono{font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:13px;}
+.tu-fic .items.c4{grid-template-columns:repeat(4,minmax(0,1fr));}
+@media (max-width:860px){ .tu-fic .items.c4{grid-template-columns:repeat(2,minmax(0,1fr));} }
+.tu-table td .p .wrap{white-space:normal; display:block; min-width:260px;}

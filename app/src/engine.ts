@@ -122,14 +122,36 @@ export interface Order {
   bypassContract: boolean;
   tasks: Task[];
   activity: Activity[];
+  byo?: ByoState; // BYO only: the lender's side of the money, kept on the order so every step reads the same status
+}
+
+// One record per BYO order. The status itself is the finance ticket's stage; this holds the evidence behind it.
+export interface ByoState {
+  lender: string;
+  appNo?: string;
+  approvedAmount?: number;
+  letter?: string; // approval letter file
+  remitAmount?: number;
+  remitRef?: string;
+  remitFile?: string;
+  settledAt?: number;
+  history: { stage: string; at: number; by: string; note: string; source: 'RM' | 'FinOps' | 'Workflow' }[];
 }
 
 export const HOUR = 3600_000;
 let seq = 1;
 const tid = () => 'T' + (1000 + seq++);
 
+// A BYO order's finance ticket lives in its own pipeline (01b); every "payment" lookup resolves to it.
 export function task(o: Order, j: JourneyId, item?: string) {
-  return o.tasks.filter((t) => t.journey === j && (!item || t.item === item))[0];
+  const jj = j === 'payment' && o.paymentMode === 'BYO' ? 'byo' : j;
+  return o.tasks.filter((t) => t.journey === jj && (!item || t.item === item))[0];
+}
+// Finance GFD: cash when the ticket closes; BYO at the lender's remittance advice (HubSpot treats it as GFD).
+export function financeGfd(o: Order) {
+  const p = task(o, 'payment');
+  if (!p) return false;
+  return o.paymentMode === 'BYO' ? ['remit', 'settled'].includes(p.stage) : isDone(p);
 }
 export function stageDef(t: Task) {
   return JOURNEYS[t.journey].stages.find((s) => s.key === t.stage)!;
@@ -164,6 +186,7 @@ export function gateStatus(o: Order) {
     if (g.key === 'hub' && !o.interstate) return { ...g, ok: true, na: true };
     if (g.key === 'contract' && o.bypassContract && !isDone(task(o, 'contract'))) return { ...g, ok: true, override: true };
     if (g.key === 'rego') return { ...g, ok: isRegistered(o) };
+    if (g.key === 'finance') return { ...g, ok: financeGfd(o) };
     return { ...g, ok: isDone(task(o, g.journey)) };
   });
 }
@@ -201,10 +224,16 @@ export function createOrder(base: Omit<Order, 'tasks' | 'activity' | 'bypassCont
   const ref = bank ? 'BT-' + o.id.replace(/\W/g, '') : (o.paymentMethod === 'Card' ? 'pi_' : 'cs_') + o.id.replace(/\W/g, '').toLowerCase() + '3xK';
   o.payments.push({ type: 'DEPOSIT', amount: o.depositPaid, at, ref, by: 'Customer', method: o.paymentMethod });
   log(o, { at, who: 'Customer', kind: 'stage', text: `Deposit $${o.depositPaid.toLocaleString()} paid (${o.paymentMethod}) · order ${o.id} created` });
-  createTask(o, 'payment', at, 'R-01');
+  const byo = o.paymentMode === 'BYO';
+  createTask(o, byo ? 'byo' : 'payment', at, 'R-01');
   createTask(o, 'contract', at, 'R-01');
+  if (byo) o.byo = { lender: o.lender || '', history: [{ stage: 'deposit', at, by: 'Workflow', note: `Ticket created by 01_START (payment mode BYO${o.lender ? ', ' + o.lender : ''})`, source: 'Workflow' }] };
   // Card and Stripe deposits are confirmed by the Stripe webhook: no proof to check, ticket moves on its own.
-  if (!bank) move(o, task(o, 'payment')!, 'instalment', 'system', at);
+  // BYO: 01_START puts those straight at Awaiting approval from 3P lender.
+  if (!bank) {
+    move(o, task(o, 'payment')!, byo ? 'awaiting' : 'instalment', 'system', at);
+    if (byo) o.byo!.history.push({ stage: 'awaiting', at, by: 'Workflow', note: `${o.paymentMethod} deposit confirmed by Stripe`, source: 'Workflow' });
+  }
   log(o, { at, who: 'Workflow', kind: 'comms', text: 'Automated email: "Your car is reserved" sent to customer' });
   return o;
 }
@@ -226,11 +255,11 @@ function fireGfr(o: Order, at: number) {
 // until the car is local. Extended warranty is a 07b warranty ticket, not a VAS install.
 function vasCheck(o: Order, at: number) {
   if (!hasGfr(o)) return;
-  const financeGfd = isDone(task(o, 'payment'));
+  const gfd = financeGfd(o);
   const local = o.customer.state !== 'NSW' || !o.interstate || isDone(task(o, 'transit'));
   o.vas.forEach((v) => {
     if (v.status === 'CANCELLED' || /warranty|insurance|iloe|service contract/i.test(v.name) || task(o, 'vas', v.name)) return;
-    const money = o.paymentMode === 'Cars24 finance' && !/dash ?cam/i.test(v.name) ? true : financeGfd;
+    const money = o.paymentMode === 'Cars24 finance' && !/dash ?cam/i.test(v.name) ? true : gfd;
     if (money && local) createTask(o, 'vas', at, 'R-04', v.name);
   });
 }
@@ -258,7 +287,14 @@ export function move(o: Order, t: Task, to: string, by: PersonaId | 'system', at
 
   // trigger rules
   if (t.journey === 'payment' && ['instalment', 'short', 'final', 'gfd'].includes(to)) fireGfr(o, at);
-  if (t.journey === 'payment' && to === 'cancelled') log(o, { at, who: 'Workflow', kind: 'rule', text: 'Sale cancelled — all open tickets on the order move to Cancelled sale; customer refund raised' });
+  if (t.journey === 'byo' && ['approved', 'remitShort', 'remit', 'settled'].includes(to)) fireGfr(o, at);
+  if (t.journey === 'byo' && to === 'approved' && o.byo?.approvedAmount != null) {
+    const gap = Math.max(0, orderTotal(o) - paid(o) - o.byo.approvedAmount);
+    log(o, { at, who: 'Workflow', kind: 'rule', rule: 'R-B2', text: gap ? `Lender approved ${money(o.byo.approvedAmount)}: ${money(gap)} short of the balance. RM task: tell the customer now; they pay the gap before settlement` : `Lender approved ${money(o.byo.approvedAmount)}: covers the balance` });
+  }
+  if (t.journey === 'byo' && to === 'remit') log(o, { at, who: 'Workflow', kind: 'rule', rule: 'R-B3', text: 'Finance GFD (remittance advice received): VAS install tasks created, finance gate ✓ for the handover slot, FinOps task to confirm the funds land' });
+  if (t.journey === 'byo' && to === 'settled') log(o, { at, who: 'Workflow', kind: 'rule', rule: 'R-B4', text: 'Loan settled: funds received, finance ticket closed' });
+  if ((t.journey === 'payment' || t.journey === 'byo') && to === 'cancelled') log(o, { at, who: 'Workflow', kind: 'rule', text: 'Sale cancelled — all open tickets on the order move to Cancelled sale; customer refund raised' });
   if (t.journey === 'transit' && to === 'arrived') createTask(o, 'rwc', at, 'R-11');
   if (t.journey === 'tradein' && to === 'final') {
     const fl = t.fields;
@@ -324,10 +360,93 @@ export const money = (n: number) => '$' + Math.round(n).toLocaleString('en-AU');
 export function orderTotal(o: Order) {
   return dap(o) - (o.discount?.status === 'Applied' ? o.discount.amount : 0) - (o.tradeIn?.value || 0);
 }
+export const paid = (o: Order) => o.payments.reduce((a, x) => a + x.amount, 0);
 export function outstanding(o: Order) {
   const p = task(o, 'payment');
+  if (o.paymentMode === 'BYO') return Math.max(0, orderTotal(o) - paid(o));
   if (isDone(p) || p?.stage === 'final') return 0;
   return Math.max(0, orderTotal(o) - o.payments.reduce((a, x) => a + x.amount, 0));
+}
+
+// ---------- BYO: the lender's side, one evidence-backed event per status ----------
+// HubSpot: anyone moves the 01b stage by hand from any screen, so it drifts from what the RM is doing. Here each
+// status change is an event with its evidence (letter, remittance advice, funds), made from wherever the user is,
+// logged with who and when, and every downstream task is keyed to the event rather than to an RM step.
+export const BYO_LENDERS = ['Latitude', 'Angle Auto', 'Macquarie', 'Pepper Money', 'Westpac', 'CBA', 'ANZ', 'NAB', 'Credit union / other'];
+
+function byoMove(o: Order, to: string, by: string, at: number, note: string, source: 'RM' | 'FinOps' | 'Workflow') {
+  const t = task(o, 'payment');
+  if (!t || !o.byo) return;
+  o.byo.history.push({ stage: to, at, by, note, source });
+  move(o, t, to, source === 'FinOps' ? 'finops' : source === 'RM' ? 'rm' : 'system', at);
+}
+export function byoVerifyDeposit(o: Order, at: number) {
+  byoMove(o, 'awaiting', who('rm'), at, 'Bank transfer matched to the statement; waiting for the lender', 'RM');
+}
+export function byoApprove(o: Order, e: { lender: string; appNo: string; amount: number; letter: string }, by: 'RM' | 'FinOps', at: number) {
+  if (!o.byo) return;
+  Object.assign(o.byo, { lender: e.lender, appNo: e.appNo, approvedAmount: e.amount, letter: e.letter });
+  o.lender = e.lender;
+  byoMove(o, 'approved', by === 'RM' ? who('rm') : 'FinOps', at, `Approval letter (${e.letter}): ${e.lender} approved ${money(e.amount)}${e.appNo ? ` · app ${e.appNo}` : ''}`, by);
+}
+export function byoRemit(o: Order, e: { amount: number; ref: string; file: string }, by: 'RM' | 'FinOps', at: number) {
+  if (!o.byo) return;
+  Object.assign(o.byo, { remitAmount: e.amount, remitRef: e.ref, remitFile: e.file });
+  o.payments.push({ type: 'LENDER_REMITTANCE', amount: e.amount, at, ref: e.ref, by: o.byo.lender, method: 'Lender transfer', receivedBy: by === 'RM' ? 'RM' : 'Finance team', remarks: e.file });
+  const left = outstanding(o);
+  byoMove(o, left === 0 ? 'remit' : 'remitShort', by === 'RM' ? who('rm') : 'FinOps', at,
+    `Remittance advice (${e.file}): ${money(e.amount)} from ${o.byo.lender}${left ? ` — ${money(left)} still to pay by the customer` : ' — balance covered'}`, by);
+}
+export function byoSettle(o: Order, at: number) {
+  if (!o.byo) return;
+  o.byo.settledAt = at;
+  const t = task(o, 'payment')!;
+  t.fields.settledConfirm = true;
+  byoMove(o, 'settled', 'FinOps', at, 'Funds matched in the bank account; loan_settled_confirmation = Yes', 'FinOps');
+}
+// Back one stage, with a reason: the only way a BYO status moves backwards, and it stays in the history.
+export function byoCorrect(o: Order, to: string, reason: string, at: number) {
+  if (!o.byo) return;
+  byoMove(o, to, who('rm'), at, `Corrected: ${reason}`, 'RM');
+}
+export function byoCancel(o: Order, reason: string, at: number) {
+  byoMove(o, 'cancelled', who('rm'), at, `Cancelled: ${reason}`, 'RM');
+}
+
+// Payment mode change, from the order's left panel at any step until handover (RM, or Finance after an in-house
+// withdrawal). The finance ticket moves to the new mode's pipeline, keeping the money already paid, and the website
+// order follows. HubSpot today: switch the ticket pipeline by hand; the website keeps the old mode.
+export const PAYMENT_MODES: PaymentMode[] = ['Cash', 'BYO', 'Cars24 finance'];
+export function changePaymentMode(o: Order, mode: PaymentMode, by: 'RM' | 'Finance', reason: string, at: number) {
+  if (mode === o.paymentMode) return;
+  const old = task(o, 'payment');
+  const verified = !!old && old.stage !== 'deposit';
+  const from = o.paymentMode;
+  o.tasks = o.tasks.filter((t) => t !== old);
+  o.paymentMode = mode;
+  log(o, { at, who: by === 'RM' ? who('rm') : 'Finance team', kind: 'rule', rule: 'R-B5', text: `Payment mode ${from} → ${mode} (${reason}). Finance ticket moved to ${mode === 'BYO' ? '01b BYO' : mode === 'Cash' ? '01a Cash' : '01d In-house'}; website order updated` });
+  if (mode === 'BYO') {
+    createTask(o, 'byo', at, 'R-B5');
+    o.byo = { lender: o.lender || '', history: [{ stage: 'deposit', at, by: by === 'RM' ? who('rm') : 'Finance team', note: `Payment mode changed from ${from}: ${reason}`, source: by === 'RM' ? 'RM' : 'FinOps' }] };
+    if (verified) byoMove(o, 'awaiting', who('rm'), at, 'Deposit already verified; waiting for the lender', 'Workflow');
+  } else {
+    createTask(o, 'payment', at, 'R-B5');
+    if (verified) move(o, task(o, 'payment')!, 'instalment', 'system', at);
+  }
+  if (mode === 'Cars24 finance') log(o, { at, who: 'Workflow', kind: 'rule', rule: 'R-B5', text: 'In-house finance: application task created for the Finance team (business manager)' });
+  if (from === 'Cars24 finance') log(o, { at, who: 'Workflow', kind: 'rule', rule: 'R-B5', text: 'In-house finance withdrawn: RM assigned to finalise next steps and arrange the handover' });
+  o.changedAt = at;
+}
+
+// The lender's deadlines run from the deposit: pre-approval in 2 business days, funds in 5.
+export function addBusinessDays(from: number, n: number) {
+  const d = new Date(from);
+  let left = n;
+  while (left > 0) { d.setDate(d.getDate() + 1); if (d.getDay() !== 0 && d.getDay() !== 6) left--; }
+  return d.getTime();
+}
+export function byoDue(o: Order) {
+  return { approval: addBusinessDays(o.depositAt, 2), settle: addBusinessDays(o.depositAt, 5) };
 }
 
 // ---------- RM actions (B2C admin panel today) ----------
@@ -338,6 +457,11 @@ export function recordPayment(o: Order, amount: number, ref: string, by: Persona
   o.payments.push({ type: o.payments.length === 1 ? 'FIRST_INSTALMENT' : 'BALANCE', amount, at: paidAt ?? at, ref, by: who(by), ...rest });
   log(o, { at, who: who(by), kind: 'stage', persona: by, text: `Payment of ${money(amount)} recorded (${e.method ? e.method + ' · ' : ''}${ref})` });
   const p = task(o, 'payment');
+  if (p && o.paymentMode === 'BYO') {
+    // A customer top-up on a short remittance closes the gap: the ticket reaches Finance GFD on its own.
+    if (p.stage === 'remitShort' && outstanding(o) === 0) byoMove(o, 'remit', 'Workflow', at, 'Gap paid by the customer: outstanding $0', 'Workflow');
+    return;
+  }
   if (!p || !['instalment', 'short'].includes(p.stage)) return;
   const left = outstanding(o);
   log(o, { at, who: 'Workflow', kind: 'rule', rule: 'R-12', text: left === 0 ? 'Fully paid — Finance ticket moved to Final remittance received' : `${money(left)} still outstanding — Finance ticket at Awaiting additional deposit` });

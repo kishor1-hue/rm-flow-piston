@@ -49,7 +49,7 @@ export interface StageDef {
 }
 
 export type JourneyId =
-  | 'contract' | 'payment' | 'rwc' | 'rego' | 'refurb' | 'vas' | 'transit' | 'delivery' | 'warranty' | 'checkin' | 'tradein';
+  | 'contract' | 'payment' | 'byo' | 'rwc' | 'rego' | 'refurb' | 'vas' | 'transit' | 'delivery' | 'warranty' | 'checkin' | 'tradein';
 
 export interface JourneyDef {
   id: JourneyId;
@@ -186,6 +186,49 @@ export const JOURNEYS: Record<JourneyId, JourneyDef> = {
         next: [{ label: 'Confirm Finance GFD', to: 'gfd', tone: 'primary', requires: ['gfdConfirm'] }],
       },
       { key: 'gfd', label: 'Finance GFD', hs: 'Finance GFD', kind: 'done', auto: 'DW01e stamps Finance GFD Date on the deal' },
+      { key: 'cancelled', label: 'Cancelled sale', hs: 'Cancelled Sale', kind: 'cancel' },
+    ],
+  },
+
+  // 01b_BYO Finance Customer: the customer's own lender pays the balance. Same RM journey as cash; only this ticket
+  // differs. Stage names are HubSpot's; "outstanding deposit" is the stage the FinOps lead asked for on the call.
+  byo: {
+    id: 'byo', name: 'BYO finance ticket', persona: 'finops', hsObject: 'Ticket', blocksSlot: true,
+    hsPipeline: '01b_BYO Finance Customer',
+    why: 'The customer brings their own loan. We wait for the lender: approval letter (GFR, car prep starts), remittance advice (Finance GFD: VAS and the handover slot open), then the funds land (Loan settled).',
+    stages: [
+      {
+        key: 'deposit', label: 'Deposit remittance received', hs: 'Deposit remittance advice received (Bank Transfer)', slaHours: 48, slaText: 'Bank transfers take 24–48h to land',
+        guide: 'Bank transfer deposit: match the proof to the statement. Card and Stripe deposits start at Awaiting approval.',
+        auto: 'Created by 01_START at booking when payment_mode = BYO and the deposit is a bank transfer',
+        next: [{ label: 'Deposit verified — awaiting lender approval', to: 'awaiting', tone: 'primary' }, { label: 'Payment not received — cancel sale', to: 'cancelled', tone: 'danger' }],
+      },
+      {
+        key: 'awaiting', label: 'Awaiting approval from 3P lender', hs: 'Awaiting Approval from 3P Lender', slaHours: 48, slaText: 'Lender pre-approval due within 2 business days of the deposit',
+        guide: 'The customer gets a pre-approval letter from their lender and sends it to us.',
+        auto: 'Set by 01_START (card / Stripe deposits), or by hand after the bank transfer is verified',
+        next: [{ label: 'Approval letter received', to: 'approved', tone: 'primary' }, { label: 'Lender declined / customer withdrew — cancel sale', to: 'cancelled', tone: 'danger' }],
+      },
+      {
+        key: 'approved', label: 'Approved from 3P lender', hs: 'Approved from 3P Lender', slaHours: 72, slaText: 'Funds due within 5 business days of the deposit',
+        guide: 'GFR: car prep has started. Tell the customer now if the approved amount leaves a gap. Wait for the lender’s remittance advice.',
+        auto: 'Moved by hand in HubSpot (FinOps or RM) when the approval letter arrives. DW01b stamps GFR',
+        next: [{ label: 'Remittance advice received', to: 'remit', tone: 'primary' }, { label: 'Remittance short — outstanding deposit', to: 'remitShort', tone: 'ghost' }, { label: 'Cancel sale', to: 'cancelled', tone: 'danger' }],
+      },
+      {
+        key: 'remitShort', label: 'Lender remittance received · outstanding deposit', hs: 'NEW · today the ticket waits at Approved from 3P Lender', kind: 'fail', slaHours: 48,
+        guide: 'The lender paid less than the outstanding balance. The customer pays the difference; the ticket moves to Finance GFD on its own once outstanding is $0.',
+        auto: 'New stage (asked for on the FinOps call): today the RM keeps the ticket at Approved until the gap is paid',
+        next: [{ label: 'Gap paid — Finance GFD', to: 'remit', tone: 'primary' }, { label: 'Cancel sale', to: 'cancelled', tone: 'danger' }],
+      },
+      {
+        key: 'remit', label: 'Remittance advice received (Finance GFD)', hs: 'Remittance Advice Received (Finance GFD)',
+        guide: 'Treated as Finance GFD: VAS install tasks are created and the handover slot can open. FinOps confirms when the funds land.',
+        auto: 'Moved by hand (RM) when the lender’s remittance advice arrives. DW01e stamps finance_gfd_date',
+        fields: [f('settledConfirm', 'Loan settled confirmation', 'check', { hs: 'loan_settled_confirmation*' })],
+        next: [{ label: 'Funds received — loan settled', to: 'settled', tone: 'primary', requires: ['settledConfirm'] }],
+      },
+      { key: 'settled', label: 'Loan settled', hs: 'Loan Settled', kind: 'done', auto: 'FinOps, with loan_settled_confirmation = Yes, once the funds are in the account' },
       { key: 'cancelled', label: 'Cancelled sale', hs: 'Cancelled Sale', kind: 'cancel' },
     ],
   },
@@ -395,6 +438,11 @@ export const RULES: RuleDef[] = [
   { id: 'R-10', when: 'RWC fails', then: 'ETA required to save; reminder to rework team at 48h; RM sees ETA on the order', persona: ['rego', 'rm'], hsToday: 'Requires Mechanical/Panel stage exists, no ETA property', evidence: 'Reimagine doc R1 (P0)' },
   { id: 'R-12', when: 'A balance payment is recorded on a cash order', then: 'Outstanding recalculated; fully paid → Finance ticket to Final remittance received, otherwise Awaiting additional deposit', persona: ['finops', 'rm'], hsToday: 'TW01a – Split Payment updates: counts split payments on the cash ticket and branches on outstanding = 0', evidence: 'TW01a definition' },
   { id: 'R-14', when: 'RM records that the customer opted in to a trade-in', then: 'Trade-in valuation request created for the Trade-In team, prefilled with what the customer entered at booking; the Trade-in step appears in the RM flow', persona: ['rm', 'tradein'], hsToday: '02c Trade-in ops ticket created by hand', evidence: 'User walkthrough' },
+  { id: 'R-B1', when: 'BYO order booked (payment_mode = BYO)', then: 'Finance ticket in the BYO pipeline: at Deposit remittance (bank transfer, RM verifies) or straight at Awaiting approval from 3P lender (card / Stripe). Approval due in 2 business days, funds in 5', persona: ['rm', 'finops'], hsToday: '01_START creates the 01b ticket; owner = the RM', evidence: '01b ticket histories (01_START), FinOps call 19 Nov' },
+  { id: 'R-B2', when: 'BYO: the lender’s approval letter is uploaded', then: 'Ticket → Approved from 3P lender; GFR stamped, so the RWC / refurb task is created (as at first instalment for cash). If the approved amount is short of the balance, the RM is told to warn the customer now', persona: ['rm', 'refurb'], hsToday: 'FinOps or RM moves the stage by hand; DW01b stamps GFR at Approved from 3P Lender, DW02 creates the 05 ticket', evidence: 'DW01b + 01b ticket histories' },
+  { id: 'R-B3', when: 'BYO: the lender’s remittance advice is uploaded', then: 'Covers the balance → Remittance advice received = Finance GFD: VAS install tasks, finance gate ✓ for the handover slot, FinOps task to confirm the funds. Short → Lender remittance received · outstanding deposit until the customer pays the gap', persona: ['rm', 'finops', 'refurb'], hsToday: 'RM moves the stage by hand; DW01e stamps finance_gfd_date at Remittance Advice Received (Finance GFD). No stage for a short remittance today', evidence: 'DW01b/DW01e, FinOps call 19 Nov' },
+  { id: 'R-B4', when: 'BYO: FinOps sees the funds in the bank account', then: 'Ticket → Loan settled (loan_settled_confirmation = Yes); finance ticket closes', persona: ['finops'], hsToday: 'FinOps moves the stage by hand and ticks Loan Settled Confirmation', evidence: '01b ticket histories' },
+  { id: 'R-B5', when: 'RM or Finance changes the payment mode (any step until handover)', then: 'Finance ticket moves to the new mode’s pipeline keeping what was paid (BYO starts at Awaiting approval once the deposit is verified); the website order follows. To in-house finance: Finance team gets the application task. From in-house: RM is assigned', persona: ['rm', 'finops'], hsToday: 'Pipeline switched by hand on the ticket; the website keeps the old payment mode and keeps asking for in-house documents', evidence: 'FinOps call 19 Nov' },
   { id: 'R-15', when: 'Trade-In team sets the final price, or the customer disputes it', then: 'Final price flows into the order (DAP breakup, outstanding, documents flagged for regenerate). A dispute sends the request back to the Trade-In team; the balance payment waits for an agreed price', persona: ['rm', 'tradein'], hsToday: 'trade_in_value updated by hand in B2C admin', evidence: 'User walkthrough' },
   { id: 'R-13', when: 'RM applies a discount or finalises the trade-in value', then: 'Outstanding and tax invoice recalculated; discounts above the limit wait for sales-manager approval', persona: ['rm'], hsToday: 'Not in HubSpot: done in the B2C admin panel (Discount codes · discount calculator / Add trade-in), HubSpot only receives discount_value and trade_in_value', evidence: 'b2c-admin-web-au: pages/DiscountCodes, pages/Orders/components/AddTradeIn' },
   { id: 'R-11', when: 'Interstate car arrives at the hub', then: 'Create the Roadworthy task (car prep starts at the destination)', persona: ['rego'], hsToday: 'TW03d: 04 ticket → Interstate Arrival → deal interstate_arrival_date, L02, deal 4, 05 ticket at Awaiting Refurb if none exists', evidence: 'TW03d definition' },

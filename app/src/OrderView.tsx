@@ -3,7 +3,7 @@ import { JOURNEYS, PERSONAS, RM_STAGES, type PersonaId, type TransitionDef } fro
 import {
   availableNext, canMove, fmtAge, gatesClear, gateStatus, hsDealStage, isDone, missingFields, money, outstanding,
   prevStage, rmStage, slaState, stageDef, task, type Order, type Task,
-  CRN_NAME, DOC_LABEL, docOutdated, needsCrn, regenerateDoc, type DocKey,
+  CRN_NAME, DOC_LABEL, docOutdated, needsCrn, regenerateDoc, type DocKey, changePaymentMode, PAYMENT_MODES, type PaymentMode,
 } from './engine';
 import { PERSONA_JOURNEYS } from './Board';
 import { Field } from './TaskCard';
@@ -63,6 +63,47 @@ function DocWorkflow({ o, now, onAct }: { o: Order; now: number; onAct: (fn: (o:
   );
 }
 
+// Payment mode, changeable at any step until handover. A confirm popup says what moves before anything does.
+function PayModeControl({ o, onAct }: { o: Order; onAct: (fn: (o: Order, at: number) => void) => void }) {
+  const [pick, setPick] = useState<PaymentMode | ''>('');
+  const [by, setBy] = useState<'RM' | 'Finance'>('RM');
+  const [reason, setReason] = useState('Customer is bringing their own loan');
+  const locked = isDone(task(o, 'delivery'));
+  const pipe = (m: PaymentMode) => (m === 'BYO' ? '01b BYO Finance Customer' : m === 'Cash' ? '01a Cash Customer Finance' : '01d In-house Finance Customer');
+  return (
+    <div className="fbox pm-box">
+      <label>Payment mode</label>
+      <div className="pm-row">
+        <select value={o.paymentMode} disabled={locked} onChange={(e) => setPick(e.target.value as PaymentMode)}>
+          {PAYMENT_MODES.map((m) => <option key={m} value={m}>{m === 'BYO' ? 'BYO (bring your own finance)' : m === 'Cars24 finance' ? 'In-house finance' : m}</option>)}
+        </select>
+      </div>
+      {locked && <small className="cs">Locked after handover</small>}
+      {pick && (
+        <div className="modal-bg" onClick={() => setPick('')}>
+          <div className="modal pm-modal" role="dialog" aria-label="Change payment mode" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-h"><div><b>Change payment mode?</b><small>{o.paymentMode} → {pick === 'Cars24 finance' ? 'In-house finance' : pick}</small></div><button className="lb-x sm" aria-label="Close" onClick={() => setPick('')}>×</button></div>
+            <div className="modal-b">
+              <ul className="pm-list">
+                <li>Finance ticket moves from <b>{pipe(o.paymentMode)}</b> to <b>{pipe(pick)}</b>. Payments already received stay.</li>
+                {pick === 'BYO' && <li>BYO status starts at <b>{task(o, 'payment')?.stage === 'deposit' ? 'Deposit remittance advice received' : 'Awaiting Approval from 3P Lender'}</b>; lender clocks run from the deposit.</li>}
+                {pick === 'Cars24 finance' && <li>The Finance team (business manager) gets the in-house application task.</li>}
+                {o.paymentMode === 'Cars24 finance' && <li>The RM is assigned to finalise next steps and arrange the handover.</li>}
+                <li>The order on the website shows the new mode, so the customer stops seeing the old one’s steps.</li>
+              </ul>
+              <div className="fields" style={{ maxWidth: 520 }}>
+                <div className="fld"><label>Changed by</label><select value={by} onChange={(e) => setBy(e.target.value as 'RM' | 'Finance')}><option>RM</option><option>Finance</option></select></div>
+                <div className="fld"><label>Reason</label><select value={reason} onChange={(e) => setReason(e.target.value)}>{['Customer is bringing their own loan', 'In-house finance withdrawn', 'Customer converted to in-house finance', 'Customer paying cash instead', 'Lender declined'].map((r) => <option key={r}>{r}</option>)}</select></div>
+              </div>
+            </div>
+            <div className="modal-f"><button className="btn" onClick={() => setPick('')}>Keep {o.paymentMode}</button><button className="btn primary" onClick={() => { const m = pick; setPick(''); onAct((x, at) => changePaymentMode(x, m, by, reason, at)); }}>Change payment mode</button></div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LeftPanel({ o, now, persona, onDemo, onComms, onAct, collapsed, toggle }: {
   o: Order; now: number; persona: PersonaId; onDemo: (tid: string) => void; onComms: (text: string) => void; onAct: (fn: (o: Order, at: number) => void) => void; collapsed: boolean; toggle: () => void;
 }) {
@@ -105,6 +146,7 @@ function LeftPanel({ o, now, persona, onDemo, onComms, onAct, collapsed, toggle 
               <>
                 {tab === 'contact' && <div className="summary-box"><b>✦ Summary</b><p>{aiSummary(o, now)}</p></div>}
                 <div className="lp-title">{({ contact: 'Contact', order: 'Order', car: 'Car', pricing: 'Pricing' } as Record<string, string>)[tab]}</div>
+                {tab === 'order' && <PayModeControl o={o} onAct={onAct} />}
                 {boxes(groups[tab])}
                 {tab === 'contact' && (
                   <>
