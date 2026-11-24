@@ -7,21 +7,23 @@ import { OrderView } from './OrderView';
 import { Rules } from './Rules';
 import { PERSONA_MENU, Tasks } from './Tasks';
 import { sampleValue } from './TaskCard';
+import type { RmStep } from './RmFlow';
 
 type View = 'list' | 'board' | 'order' | 'rules';
 
 
-export default function App() {
+export default function App({ start, toJourney }: { start?: { id: string; step: RmStep }; toJourney?: () => void }) {
   const [now, setNow] = useState(() => Date.now());
   const [orders, setOrders] = useState<Order[]>(() => buildSeed(Date.now()));
   const [persona, setPersona] = useState<PersonaId>('rm');
-  const [view, setView] = useState<View>('list');
-  const [sel, setSel] = useState<string | null>(null);
+  const [view, setView] = useState<View>(start ? 'order' : 'list');
+  const [sel, setSel] = useState<string | null>(start?.id || null);
+  const [startStep, setStartStep] = useState<RmStep | undefined>(start?.step);
   const [focus, setFocus] = useState<string | undefined>();
   const [q, setQ] = useState('');
   const [toast, setToast] = useState<Activity[] | null>(null);
   const [pmenu, setPmenu] = useState(false);
-  const [railOpen, setRailOpen] = useState(true);
+  const [railOpen, setRailOpen] = useState(!start);
 
   useEffect(() => { const i = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(i); }, []);
   useEffect(() => { if (!toast) return; const i = setTimeout(() => setToast(null), 5200); return () => clearTimeout(i); }, [toast]);
@@ -52,7 +54,7 @@ export default function App() {
       move(o, t, n.to, JOURNEYS[t.journey].persona, Date.now());
     });
 
-  const open = (id: string, tid?: string) => { setSel(id); setFocus(tid); setView('order'); setRailOpen(false); window.scrollTo(0, 0); };
+  const open = (id: string, tid?: string) => { setStartStep(undefined); setSel(id); setFocus(tid); setView('order'); setRailOpen(false); window.scrollTo(0, 0); };
   const toList = () => { setView('list'); setRailOpen(true); };
   const order = orders.find((o) => o.id === sel);
   const hits = useMemo(() => (q.length < 2 ? [] : orders.filter((o) => (o.id + o.customer.name + o.car.make + o.car.model + o.apptId).toLowerCase().includes(q.toLowerCase())).slice(0, 6)), [q, orders]);
@@ -77,6 +79,7 @@ export default function App() {
         <button className="navitem" disabled title="Not part of this prototype"><span className="ni">⇪</span><span className="nl">Bulk operations</span></button>
         <button className={'navitem' + (view === 'rules' ? ' on' : '')} onClick={() => nav('rules')}><span className="ni">⚙</span><span className="nl">HubSpot rules map</span></button>
         <button className="navitem" disabled title="Not part of this prototype"><span className="ni">☷</span><span className="nl">Schema admin</span></button>
+        {toJourney && <button className="navitem" onClick={toJourney}><span className="ni">◧</span><span className="nl">Journey spec</span></button>}
         <div className="navfoot"><button className="navitem" disabled><span className="ni">⚙</span><span className="nl">Settings</span></button></div>
       </aside>
 
@@ -128,7 +131,7 @@ export default function App() {
           )}
           {view === 'order' && order && (
             <OrderView
-              o={order} persona={persona} now={now} focus={focus} onFocus={setFocus} back={toList}
+              o={order} persona={persona} now={now} focus={focus} onFocus={setFocus} back={toList} step={order.id === start?.id ? startStep : undefined}
               onField={(tid, k, v) => setField(order.id, tid, k, v)}
               onMove={(tid, to) => doMove(order.id, tid, to, persona)}
               onDemo={(tid) => demo(order.id, tid)}

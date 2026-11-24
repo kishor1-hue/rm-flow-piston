@@ -7,6 +7,7 @@ RM · Refurb (sales promise, detail, QC, VAS ops) · Registration & RWC · Deliv
   - `src/model.ts` — journeys, stages (each mapped to its HubSpot pipeline/stage), trigger rules, slot gates
   - `src/engine.ts` — order state + workflow engine (stage change → rules → tasks for other personas)
   - `src/seed.ts` — invented demo orders, replayed through the engine
+- `app/src/journey/` — the journey viewer in the PISTON structure (`spec.ts` holds phases, steps, exits, states, anatomy and fields for Cash and BYOF)
 - `RM-FLOW-DESIGN.md` — design spec: every RM step, popups, tables, rules, money, colours, demo orders
 - `RM-MAPPING.md` — the HubSpot → LeadVerse mapping and the live-data evidence behind each rule
 

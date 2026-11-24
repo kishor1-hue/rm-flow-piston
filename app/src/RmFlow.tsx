@@ -9,6 +9,8 @@ import {
 import { PrepStatus } from './Visibility';
 import { ByoLenderStep, byoNext, ByoStatusCard, ByoStatusField, type ByoEvent } from './Byo';
 import { Field } from './TaskCard';
+import { PHASES, STATES, stepByKey, type Track } from './journey/spec';
+import { Button, DataTable, Dls, FetchedInfo, InfoMessage, LinkButton, SectionCard, SegmentTabs, SelectionSlots, type Row } from './dls/Dls';
 import { dlPng, proofPng } from './proof';
 import { payload, SchemaForm, validate, type FormValues, type SchemaPage } from './SchemaForm';
 import spForm from './forms/sales-promise-checklist.json';
@@ -72,7 +74,7 @@ export const firstOpenStep = (o: Order): RmStep => stepsFor(o).find((s) => !step
 function Fx({ items }: { items: string[] }) {
   return (
     <div className="fx">
-      <div className="fx-h">When you do this, LeadVerse will</div>
+      <div className="fx-h">When you take the main exit, LeadVerse will</div>
       <ul>{items.map((x) => <li key={x}>{x}</li>)}</ul>
     </div>
   );
@@ -113,68 +115,47 @@ const DISCOUNT_DESCRIPTIONS = ['EW', 'VAS Sales', 'Car Discount', 'Eligible Stoc
 
 const methodLabel = (m?: string) => (m === 'Card' ? 'Card (Stripe)' : m === 'Stripe' ? 'Stripe payment link' : m || 'Bank transfer');
 
-// Price breakdown: what the customer owes, what has landed, what is still pending.
+// Price breakdown: what the customer owes, what has landed, what is still pending. @cspl/table in a section card.
 function PriceBreakdown({ o }: { o: Order }) {
   const paid = o.payments.reduce((a, x) => a + x.amount, 0);
   const due = outstanding(o);
-  const r = (label: string, amt: number, opts: { neg?: boolean; note?: string; cls?: string } = {}) => (
-    <tr key={label} className={opts.cls}>
-      <td>{label}{opts.note && <small className="pb-note">{opts.note}</small>}</td>
-      <td style={{ textAlign: 'right' }}>{opts.neg && amt ? '− ' : ''}{money(amt)}</td>
-    </tr>
-  );
+  const rows: Row[] = [
+    { k: `${o.car.year} ${o.car.make} ${o.car.model}`, s: 'Car price', v: money(o.price) },
+    { k: 'Govt charges', s: 'Duty, 3 months registration, CTP, transfer, handling', v: money(govtCharges(o).total) },
+    ...o.vas.filter((v) => v.price > 0).map((v): Row => ({ k: v.name, s: 'Add-on', v: money(v.price) })),
+    ...(o.shipping > 0 ? [{ k: 'Shipping', s: 'Home delivery', v: money(o.shipping) }] : []),
+    ...(o.discount ? [{ k: 'Discount', s: o.discount.status === 'Applied' ? o.discount.reason : `${money(o.discount.amount)} awaiting approval`, v: o.discount.status === 'Applied' ? '− ' + money(o.discount.amount) : money(0) }] : []),
+    ...(o.tradeIn ? [{ k: 'Trade-in', s: o.tradeIn.car, v: '− ' + money(o.tradeIn.value) }] : []),
+    { k: 'Total payable', v: money(orderTotal(o)), $cls: 'sum' },
+    ...o.payments.map((x): Row => ({ k: x.type === 'DEPOSIT' ? 'Deposit paid' : x.type === 'FIRST_INSTALMENT' ? 'First instalment paid' : x.type === 'LENDER_REMITTANCE' ? 'Lender remittance' : 'Balance paid', s: methodLabel(x.method), v: '− ' + money(x.amount) })),
+    { k: 'Pending balance', s: due ? `${Math.round((paid / orderTotal(o)) * 100)}% paid so far` : 'Fully paid', v: money(due), $cls: 'due' + (due ? '' : ' paid') },
+  ];
   return (
-    <>
-      <div className="sec-h">Price breakdown</div>
-      <div className="tbox">
-        <table className="tl-t pb">
-          <thead><tr><th>Item</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
-          <tbody>
-            {r(`${o.car.year} ${o.car.make} ${o.car.model}`, o.price, { note: 'Car price' })}
-            {r('Govt charges', govtCharges(o).total, { note: 'Duty, 3 months registration, CTP, transfer, handling' })}
-            {o.vas.filter((v) => v.price > 0).map((v) => r(v.name, v.price, { note: 'Add-on' }))}
-            {o.shipping > 0 && r('Shipping', o.shipping, { note: 'Home delivery' })}
-            {o.discount && r('Discount', o.discount.status === 'Applied' ? o.discount.amount : 0, { neg: true, note: o.discount.status === 'Applied' ? o.discount.reason : `${money(o.discount.amount)} awaiting approval` })}
-            {o.tradeIn && r('Trade-in', o.tradeIn.value, { neg: true, note: o.tradeIn.car })}
-            {r('Total payable', orderTotal(o), { cls: 'pb-sum' })}
-            {o.payments.map((x) => r(x.type === 'DEPOSIT' ? 'Deposit paid' : x.type === 'FIRST_INSTALMENT' ? 'First instalment paid' : 'Balance paid', x.amount, { neg: true, note: methodLabel(x.method) }))}
-            {r('Pending balance', due, { cls: 'pb-due' + (due ? '' : ' paid'), note: due ? `${Math.round((paid / orderTotal(o)) * 100)}% paid so far` : 'Fully paid' })}
-          </tbody>
-        </table>
-      </div>
-    </>
+    <SectionCard part="price" title="Price breakdown" subtitle="What the customer owes, what has landed and what is still to collect">
+      <DataTable columns={[{ key: 'k', label: 'Item', subTextKey: 's' }, { key: 'v', label: 'Amount', align: 'right' }]} rows={rows} />
+    </SectionCard>
   );
 }
 
 // Price breakup - DAP (drive-away price), as in the B2C admin order page.
+const amt = (v: number) => (v < 0 ? '− ' + money(-v) : money(v));
 function DapBreakup({ o }: { o: Order }) {
   const g = govtCharges(o);
   const paid = o.payments.reduce((a, x) => a + x.amount, 0);
   const disc = o.discount?.status === 'Applied' ? o.discount.amount : 0;
-  const rows: [string, number | string, string?][] = [
+  const rows: [string, number, string?][] = [
     ['EGC', o.price],
-    ['Govt Charges', g.total, 'grp'],
-    ['Registration Transfer Fees', g.transfer, 'sub'], ['Motor vehicle duty', g.duty, 'sub'], [`${g.months} months registration`, g.rego, 'sub'], ['CTP insurance', g.ctp, 'sub'], ['Handling fee', g.handling, 'sub'],
-    ['Hub2Hub Delivery Fees', 0], ['Home Delivery fees', o.shipping], ['VAS Charges', vasTotal(o)], ['Accessories Amount', 0],
+    ['Govt charges', g.total, 'grp'],
+    ['Registration transfer fees', g.transfer, 'sub'], ['Motor vehicle duty', g.duty, 'sub'], [`${g.months} months registration`, g.rego, 'sub'], ['CTP insurance', g.ctp, 'sub'], ['Handling fee', g.handling, 'sub'],
+    ['Hub2Hub delivery fees', 0], ['Home delivery fees', o.shipping], ['VAS charges', vasTotal(o)], ['Accessories amount', 0],
     ['DAP', dap(o), 'sum'],
-    ['Discount Value', disc ? -disc : 0], ['Trade in Value', o.tradeIn ? -o.tradeIn.value : 0],
-    ['Total Amount to be Paid', orderTotal(o), 'sum'], ['Total Amount Paid', paid], ['Total Outstanding', outstanding(o), 'due'],
-    ['Credit note value', 0],
+    ['Discount value', disc ? -disc : 0], ['Trade-in value', o.tradeIn ? -o.tradeIn.value : 0],
+    ['Total amount to be paid', orderTotal(o), 'sum'], ['Total amount paid', paid], ['Total outstanding', outstanding(o), 'due' + (outstanding(o) ? '' : ' paid')],
   ];
   return (
-    <>
-      <div className="sec-h">Price breakup - DAP (Drive away price)</div>
-      <div className="tbox">
-        <table className="tl-t pb">
-          <thead><tr><th>Item</th><th>Price</th></tr></thead>
-          <tbody>{rows.map(([k, v, c]) => (
-            <tr key={k} className={c === 'sum' ? 'pb-sum' : c === 'due' ? 'pb-due' + (v ? '' : ' paid') : c === 'sub' ? 'pb-subrow' : ''}>
-              <td>{k}</td><td>{typeof v === 'number' ? (v < 0 ? '− ' + money(-v) : money(v)) : v}</td>
-            </tr>
-          ))}</tbody>
-        </table>
-      </div>
-    </>
+    <SectionCard part="dap" title="Price breakup · DAP" subtitle="Drive-away price, recalculated with every VAS added or removed">
+      <DataTable columns={[{ key: 'k', label: 'Item' }, { key: 'v', label: 'Price', align: 'right' }]} rows={rows.map(([k, v, c]) => ({ k, v: amt(v), $cls: c }))} />
+    </SectionCard>
   );
 }
 
@@ -184,47 +165,26 @@ function FinalBreakup({ o }: { o: Order }) {
   const disc = o.discount?.status === 'Applied' ? o.discount.amount : 0;
   const paid = o.payments.reduce((a, x) => a + x.amount, 0);
   const due = outstanding(o);
-  const row = (k: string, v: number | null, cls = '', neg = false) => (
-    <tr key={k} className={cls}><td>{k}</td><td>{v == null ? '—' : (neg && v ? '− ' : '') + money(v)}</td></tr>
-  );
+  const rows: [string, number | null, string?][] = [
+    ['DAP', dap(o), 'sum'], ['EGC', o.price], ['Govt charges', g.total, 'grp'],
+    ['Motor vehicle duty', g.duty, 'sub'], [`${g.months} months registration`, g.rego, 'sub'], ['CTP insurance', g.ctp, 'sub'], ['Transfer fee', g.transfer, 'sub'], ['Handling fee', g.handling, 'sub'],
+    ['Interstate charges', 0], ['Home delivery charges', o.shipping], ['Discount value', disc ? -disc : null], ['VAS', vasTotal(o)],
+    ...(o.tradeIn ? [['Trade-in value', -o.tradeIn.value] as [string, number]] : []),
+    ['Total amount to be paid', orderTotal(o), 'sum'], ['Total amount paid', paid], ['Outstanding balance', due, 'due' + (due ? '' : ' paid')],
+  ];
   return (
-    <>
-      <div className="sec-h">Price breakup</div>
-      <div className="tbox">
-        <table className="tl-t pb fb">
-          <thead><tr><th>Item</th><th>Amount</th></tr></thead>
-          <tbody>
-            {row('DAP', dap(o), 'pb-sum')}
-            {row('EGC', o.price)}
-            {row('Govt charges', g.total, 'pb-grp')}
-            {row('Motor vehicle duty', g.duty, 'pb-subrow')}
-            {row(`${g.months} months registration`, g.rego, 'pb-subrow')}
-            {row('CTP insurance', g.ctp, 'pb-subrow')}
-            {row('Transfer fee', g.transfer, 'pb-subrow')}
-            {row('Handling fee', g.handling, 'pb-subrow')}
-            {row('Interstate charges', 0)}
-            {row('Home delivery charges', o.shipping)}
-            {row('Discount value', disc || null, '', true)}
-            {row('VAS', vasTotal(o))}
-            {o.tradeIn && row('Trade-in value', o.tradeIn.value, '', true)}
-            {row('Total amount to be paid', orderTotal(o), 'pb-sum')}
-            {row('Total amount paid', paid)}
-            {row('Outstanding balance', due, 'pb-due' + (due ? '' : ' paid'))}
-          </tbody>
-        </table>
-      </div>
-    </>
+    <SectionCard part="price" title="Price breakup" subtitle="What makes up the drive-away price and what is still to collect">
+      <DataTable columns={[{ key: 'k', label: 'Item' }, { key: 'v', label: 'Amount', align: 'right' }]} rows={rows.map(([k, v, c]) => ({ k, v: v == null ? '—' : amt(v), $cls: c }))} />
+    </SectionCard>
   );
 }
 
 function RegistrationDetails({ o }: { o: Order }) {
   const g = govtCharges(o);
-  const rows: [string, string][] = [['Registration Opted', 'Yes'], ['Opted Registration Months', `${g.months} months`], ['Total Charges', money(g.total)], ['Stamp duty', money(g.duty)], ['CTP', money(g.ctp)], ['Transfer fee', money(g.transfer)], ['Registration fee', money(g.rego)], ['Number Plates type', g.plates], ['Handling fee', money(g.handling)]];
   return (
-    <>
-      <div className="sec-h">Registration</div>
-      <div className="kvgrid">{rows.map(([k, v]) => <div key={k}><span>{k}</span><b>{v}</b></div>)}</div>
-    </>
+    <SectionCard part="rego" title="Registration" subtitle={`${g.months} months, ${o.customer.state} plates`}>
+      <FetchedInfo cols={3} items={[['Registration opted', 'Yes'], ['Months', `${g.months} months`], ['Total charges', money(g.total)], ['Stamp duty', money(g.duty)], ['CTP', money(g.ctp)], ['Transfer fee', money(g.transfer)], ['Registration fee', money(g.rego)], ['Number plates', g.plates], ['Handling fee', money(g.handling)]]} />
+    </SectionCard>
   );
 }
 
@@ -352,7 +312,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   const SV = stepsFor(o);
   const [menu, setMenu] = useState(false);
   const [zoom, setZoom] = useState(false);
-  const [date, setDate] = useState('Tue 17 Nov');
+  const [date, setDate] = useState('Wed 18 Nov');
   const [time, setTime] = useState('11:00 am');
   const promisedOff = Number((o.promises.join(' ').match(/\$(\d+)\s*off/i) || [])[1] || 0);
   const [disc, setDisc] = useState({ type: 'Flat' as 'Flat' | 'Percent', value: String(promisedOff || ''), reason: promisedOff ? 'Car Discount' : '', till: '' });
@@ -364,6 +324,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   const [vasModal, setVasModal] = useState(false);
   const [payModal, setPayModal] = useState(false);
   const [byoOpen, setByoOpen] = useState<ByoEvent | null>(null);
+  const [showSpec, setShowSpec] = useState(false);
   useEffect(() => { setByoOpen(null); }, [o.id]);
   const isByo = o.paymentMode === 'BYO' && !!o.byo;
   const [vasRow, setVasRow] = useState('');
@@ -423,43 +384,33 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
       : [];
     const bank = o.paymentMethod === 'Bank transfer';
     const pending = p.stage === 'deposit';
+    const payRows: Row[] = o.payments.filter((x) => !(isByo && x.type === 'LENDER_REMITTANCE')).map((x) => {
+      const verify = pending && x.type === 'DEPOSIT' && bank;
+      return { type: x.type, method: methodLabel(x.method), txn: <span className="mono">{x.ref}</span>, paid: `${fmtAge(Date.now() - x.at)} ago`, amount: money(x.amount), status: { label: verify ? 'To verify' : 'Success', variant: verify ? 'warning' : 'success' } };
+    });
     body = (
       <>
-        <div className="dlq" style={{ marginTop: 14 }}>
-          <div className={'dlq-row' + (o.tradeInOpted === 'Yes' ? '' : '')}>
-            <div><b>Consumer opted Trade-In?</b><small>{o.tradeInBooking ? `At booking the customer entered ${o.tradeInBooking.car} · ${money(o.tradeInBooking.value)}` : 'No trade-in entered at booking'} · Yes adds the Trade-in step and sends a valuation request to the Trade-In team</small></div>
-            <div className="yn" role="radiogroup">
-              {(['Yes', 'No'] as const).map((v) => <button key={v} role="radio" aria-checked={o.tradeInOpted === v} disabled={!!o.rmDone.tradein || task(o, 'tradein')?.stage === 'final'} className={o.tradeInOpted === v ? 'on ' + (v === 'Yes' ? 'yes' : 'no') : ''} onClick={() => act((x, at) => setTradeInOpted(x, v, at))}>{v}</button>)}
-            </div>
+        <SectionCard part="tradein" title="Trade-in" subtitle={o.tradeInBooking ? `At booking: ${o.tradeInBooking.car} · ${money(o.tradeInBooking.value)}` : 'No trade-in entered at booking'}
+          badge={o.tradeInOpted ? { label: o.tradeInOpted === 'Yes' ? 'Opted in' : 'No trade-in', variant: o.tradeInOpted === 'Yes' ? 'information' : 'neutral' } : { label: 'Ask the customer', variant: 'warning' }}>
+          <div className="rm-row">
+            <div><b>Did the customer opt in to a trade-in?</b><small>Yes adds the Trade-in step and sends a valuation request to the Trade-In team</small></div>
+            <SegmentTabs value={o.tradeInOpted || ('' as 'Yes')} disabled={!!o.rmDone.tradein || task(o, 'tradein')?.stage === 'final'} options={[{ value: 'Yes', label: 'Yes' }, { value: 'No', label: 'No' }]} onChange={(v) => act((x, at) => setTradeInOpted(x, v, at))} />
           </div>
-        </div>
-        {isByo ? <div style={{ marginTop: 14 }}><ByoStatusField o={o} act={act} open={byoOpen} setOpen={setByoOpen} /></div> : <TicketStatus o={o} t={p} title={`${o.id}-${first} (Finance Ticket)`} onMove={(to) => moveTask(p, to)} />}
-        <div className="sec-h">Payments</div>
-        <div className="tbox">
-          <table className="tl-t">
-            <thead><tr><th>Type</th><th>Method</th><th>Transaction ID</th><th>Paid</th><th style={{ textAlign: 'right' }}>Amount</th><th>Status</th></tr></thead>
-            <tbody>
-              {o.payments.map((x) => {
-                const verify = pending && x.type === 'DEPOSIT' && bank;
-                if (isByo && x.type === 'LENDER_REMITTANCE') return null;
-                return (
-                  <tr key={x.ref + x.at}>
-                    <td>{x.type}</td><td>{methodLabel(x.method)}</td><td className="mono">{x.ref}</td><td>{fmtAge(Date.now() - x.at)} ago</td>
-                    <td style={{ textAlign: 'right' }}>{money(x.amount)}</td>
-                    <td><span className={'code ' + (verify ? 'c-amber' : 'c-green')}>{verify ? 'TO_VERIFY' : 'SUCCESS'}</span></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        </SectionCard>
+        {isByo ? <SectionCard part="ticket" title="BYO finance ticket" subtitle="HubSpot 01b BYO Finance Customer · the status other teams' tasks hang off">
+          <ByoStatusField o={o} act={act} open={byoOpen} setOpen={setByoOpen} />
+        </SectionCard> : <SectionCard part="ticket" title="Finance ticket" subtitle="HubSpot 01a Cash Customer Finance" badge={{ label: stageDef(p).label, variant: pending ? 'warning' : 'success' }}>
+          <TicketStatus o={o} t={p} title={`${o.id}-${first} (Finance Ticket)`} onMove={(to) => moveTask(p, to)} />
+        </SectionCard>}
+        <SectionCard part="payments" title="Payments" subtitle="Every payment on the order, from OMS">
+          <DataTable columns={[{ key: 'type', label: 'Type' }, { key: 'method', label: 'Method' }, { key: 'txn', label: 'Transaction ID' }, { key: 'paid', label: 'Paid' }, { key: 'amount', label: 'Amount', align: 'right' }, { key: 'status', label: 'Status', isBadge: true }]} rows={payRows} />
+        </SectionCard>
         <PriceBreakdown o={o} />
         {bank ? (
-          <>
-            <div className="sec-h">Payment proof <span className="hs">proof_of_payment_link</span></div>
+          <SectionCard part="proof" title="Payment proof" subtitle="Uploaded by the customer · proof_of_payment_link" badge={{ label: pending ? 'To verify' : 'Verified', variant: pending ? 'warning' : 'success' }}>
             <button className="proof-shot" onClick={() => setZoom(true)} aria-label="Open payment proof">
               <img src={proofPng(o)} alt={`Bank transfer receipt for ${o.id}`} />
-              <span className="ps-cap"><b>{(o.proofUrl || '').split('/').pop()}</b><small>Uploaded by customer · {fmtAge(Date.now() - o.depositAt)} ago · click to enlarge</small></span>
+              <span className="ps-cap"><b>{(o.proofUrl || '').split('/').pop()}</b><small>Uploaded {fmtAge(Date.now() - o.depositAt)} ago · click to enlarge</small></span>
             </button>
             {zoom && (
               <div className="lightbox" onClick={() => setZoom(false)}>
@@ -467,10 +418,10 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
                 <button className="lb-x" aria-label="Close">×</button>
               </div>
             )}
-            {!pending && <div className="statusline">Proof verified. First instalment confirmed and car prep has started (GFR).</div>}
-          </>
+            {!pending && <InfoMessage tone="success" icon="circle-check-filled">Proof verified. First instalment confirmed and car prep has started (GFR).</InfoMessage>}
+          </SectionCard>
         ) : (
-          <div className="statusline">Paid by {methodLabel(o.paymentMethod)}. Stripe confirmed it and moved the ticket to {isByo ? 'Awaiting Approval from 3P Lender' : 'First Instalment Paid'} on its own. Nothing to verify.</div>
+          <InfoMessage tone="neutral">Paid by {methodLabel(o.paymentMethod)}. Stripe confirmed it and moved the ticket to {isByo ? 'Awaiting Approval from 3P Lender' : 'First Instalment Paid'} on its own. Nothing to verify.</InfoMessage>
         )}
       </>
     );
@@ -530,44 +481,39 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     }
     fx = !open ? [] : stateNo && !reupload.length ? [`Raise a customer ID request: SMS + email with a portal link and how to get a ${crnName} from the ${o.customer.state} road authority`, 'Track it on the order (requested, reminders, received) with a 24h SLA', 'This step is done; the number is collected in Contract & invoice, before the final payment']
       : reupload.length ? ['Send the customer a portal link to upload the licence again, with the reason', 'Checks reset when the new images arrive'] : ["Mark the licence verified", 'Registration team can lodge the transfer', 'Sync to OMS'];
-    const yn = (k: DlCheck) => (
-      <div className="yn" role="radiogroup">
-        {(['Yes', 'No'] as const).map((v) => <button key={v} role="radio" aria-checked={ans[k] === v} disabled={!open} className={ans[k] === v ? 'on ' + v.toLowerCase() : ''} onClick={() => act((x) => setDlCheck(x, k, v))}>{v}</button>)}
-      </div>
-    );
+    const dlTone = dl.status === 'Verified' ? 'success' : dl.status === 'Re-upload requested' ? 'error' : dl.status === 'Uploaded' ? 'warning' : 'information';
     body = (
       <>
-        <div className="sec-h">Driver's licence <span className="hs">uploaded by the customer on the portal · click to enlarge</span></div>
-        <div className="dl-imgs">
-          {(['front', 'back'] as const).map((sd) => (
-            <button key={sd} className="dl-img" onClick={() => setDlZoom(sd)} aria-label={`Open licence ${sd}`}><img src={dlPng(o, sd)} alt={`Driver's licence ${sd}`} /><span>{sd === 'front' ? 'Front' : 'Back'}</span></button>
-          ))}
-          <div className="kvgrid dl-data">
-            {([['Licence holder', o.customer.name], ['Licence number', dl.number], ['State of issue', dl.state], ['Expiry', dl.expiry], ['Lives in', `${o.customer.suburb}, ${o.customer.state}`], ['Car registration state', o.customer.state]] as [string, string][]).map(([k, v]) => <div key={k}><span>{k}</span><b>{v}</b></div>)}
+        <SectionCard part="licence" title="Driver's licence" subtitle="Uploaded by the customer on the portal · click a side to enlarge" badge={{ label: dl.status, variant: dlTone }}>
+          <div className="dl-imgs">
+            {(['front', 'back'] as const).map((sd) => (
+              <button key={sd} className="dl-img" onClick={() => setDlZoom(sd)} aria-label={`Open licence ${sd}`}><img src={dlPng(o, sd)} alt={`Driver's licence ${sd}`} /><span>{sd === 'front' ? 'Front' : 'Back'}</span></button>
+            ))}
           </div>
-        </div>
+          <FetchedInfo cols={3} items={[['Licence holder', o.customer.name], ['Licence number', dl.number], ['State of issue', dl.state], ['Expiry', dl.expiry], ['Lives in', `${o.customer.suburb}, ${o.customer.state}`], ['Car registration state', o.customer.state]]} />
+        </SectionCard>
         {dlZoom && <div className="lightbox" onClick={() => setDlZoom('')}><img src={dlPng(o, dlZoom)} alt={`Driver's licence ${dlZoom}`} /><button className="lb-x" aria-label="Close">×</button></div>}
 
-        <div className="sec-h">Agent checks</div>
-        <div className="dlq">
-          {QS.map(([k, q, hint]) => (
-            <div key={k} className={'dlq-row' + (ans[k] === 'No' ? ' no' : '')}>
-              <div><b>{q}</b><small>{hint} · <span className={'sugg ' + sug[k].toLowerCase()}>System: {sug[k]}</span></small></div>
-              {yn(k)}
-            </div>
-          ))}
-        </div>
-        {reupload.length > 0 && <div className="statusline warn">The licence fails a check, so ask the customer to upload it again before going further.</div>}
-        {dl.status === 'Re-upload requested' && <div className="statusline warn">Re-upload requested. Waiting for new images from the customer.</div>}
+        <SectionCard part="checks" title="Agent checks" subtitle="Four checks, each with the system's suggestion" badge={answered ? { label: reupload.length || stateNo ? 'Action needed' : 'All passed', variant: reupload.length ? 'error' : stateNo ? 'warning' : 'success' } : { label: `${QS.filter(([k]) => ans[k]).length} of 4 answered`, variant: 'neutral' }}>
+          <div className="rm-rows">
+            {QS.map(([k, q, hint]) => (
+              <div key={k} className={'rm-row' + (ans[k] === 'No' ? ' no' : '')}>
+                <div><b>{q}</b><small>{hint} · <span className={'sugg ' + sug[k].toLowerCase()}>System: {sug[k]}</span></small></div>
+                <SegmentTabs value={(ans[k] || '') as 'Yes'} disabled={!open} options={[{ value: 'Yes', label: 'Yes' }, { value: 'No', label: 'No' }]} onChange={(v) => act((x) => setDlCheck(x, k, v))} />
+              </div>
+            ))}
+          </div>
+          {reupload.length > 0 && <InfoMessage tone="error">The licence fails a check, so ask the customer to upload it again before going further.</InfoMessage>}
+          {dl.status === 'Re-upload requested' && <InfoMessage tone="warning">Re-upload requested. Waiting for new images from the customer.</InfoMessage>}
+        </SectionCard>
 
         {(stateNo || dl.crn) && !reupload.length && (
-          <>
-            <div className="sec-h">Customer ID request · {crnName}</div>
+          <SectionCard part="crn" title={`Customer ID request · ${crnName}`} subtitle={`${dl.state} licence, registering in ${o.customer.state}`}>
             {crnTracker(false)}
-          </>
+          </SectionCard>
         )}
-        {dl.status === 'ID requested' && <div className="statusline">Licence checked. Customer ID request raised; the RM collects the {crnName} in Contract &amp; invoice, before the final payment.</div>}
-        {dl.status === 'Verified' && <div className="statusline">Licence verified{dl.crn ? ` · ${crnName} ${dl.crn} passed to Registration` : ''}.</div>}
+        {dl.status === 'ID requested' && <InfoMessage>Licence checked. Customer ID request raised; the RM collects the {crnName} in Contract &amp; invoice, before the final payment.</InfoMessage>}
+        {dl.status === 'Verified' && <InfoMessage tone="success" icon="circle-check-filled">Licence verified{dl.crn ? ` · ${crnName} ${dl.crn} passed to Registration` : ''}.</InfoMessage>}
       </>
     );
   }
@@ -597,18 +543,21 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     );
     body = (
       <>
-        <TicketStatus o={o} t={c} title={`${o.id}-${o.apptId}(Customer Documents)`} onMove={(to) => moveTask(c, to)} />
-        <div className="sec-h">Before the final payment</div>
-        <div className="chks">
-          {check(signed, 'Contract signed', signed ? 'DocuSign envelope completed' : ['sent', 'form4', 'review'].includes(c.stage) ? 'Sent · waiting for the customer to sign' : 'Not sent yet')}
-          {check(!docOutdated(o, 'contract'), `Contract up to date · v${o.docs.contract.v}`, docOutdated(o, 'contract') ? 'Order changed after it was generated (discount, VAS or trade-in)' : `Generated ${fmtAge(Date.now() - o.docs.contract.at)} ago`, 'contract')}
-          {check(!docOutdated(o, 'invoice'), `Tax invoice correct · v${o.docs.invoice.v}`, docOutdated(o, 'invoice') ? `Invoice total is out of date; order total is now ${money(orderTotal(o))}` : `Total ${money(orderTotal(o))} · generated ${fmtAge(Date.now() - o.docs.invoice.at)} ago`, 'invoice')}
-          {o.tradeIn && check(['form4', 'review', 'signed'].includes(c.stage) || signed, 'Trade-in Form 4', 'Required for the trade-in')}
-          {(idPending || o.dl.crn) && check(o.dl.status === 'Verified', `Customer ID · ${crnName}`, o.dl.status === 'Verified' ? `${o.dl.crn} · received via ${o.dl.crnVia}` : `${o.dl.state} licence, registering in ${o.customer.state} · requested ${fmtAge(Date.now() - (o.dl.requestedAt || Date.now()))} ago`)}
-        </div>
-        {(idPending || o.dl.crn) && (<><div className="sec-h">Customer ID · {crnName}</div>{crnTracker(true)}</>)}
-        {!signed && <StageFields t={c} onField={(k, v) => onField(c.id, k, v)} />}
-        {o.rmDone.final && <div className="statusline">Checked {fmtAge(Date.now() - o.rmDone.final)} ago. Ready for the final payment.</div>}
+        <SectionCard part="ticket" title="Customer documents ticket" subtitle="HubSpot 02 Sales Contracts · DocuSign" badge={{ label: stageDef(c).label, variant: signed ? 'success' : 'warning' }}>
+          <TicketStatus o={o} t={c} title={`${o.id}-${o.apptId}(Customer Documents)`} onMove={(to) => moveTask(c, to)} />
+          {!signed && <StageFields t={c} onField={(k, v) => onField(c.id, k, v)} />}
+        </SectionCard>
+        <SectionCard part="checks" title="Before the final payment" subtitle="The contract and the invoice must match the order as it is now" badge={o.rmDone.final ? { label: 'Checked', variant: 'success' } : undefined}>
+          <div className="chks">
+            {check(signed, 'Contract signed', signed ? 'DocuSign envelope completed' : ['sent', 'form4', 'review'].includes(c.stage) ? 'Sent · waiting for the customer to sign' : 'Not sent yet')}
+            {check(!docOutdated(o, 'contract'), `Contract up to date · v${o.docs.contract.v}`, docOutdated(o, 'contract') ? 'Order changed after it was generated (discount, VAS or trade-in)' : `Generated ${fmtAge(Date.now() - o.docs.contract.at)} ago`, 'contract')}
+            {check(!docOutdated(o, 'invoice'), `Tax invoice correct · v${o.docs.invoice.v}`, docOutdated(o, 'invoice') ? `Invoice total is out of date; order total is now ${money(orderTotal(o))}` : `Total ${money(orderTotal(o))} · generated ${fmtAge(Date.now() - o.docs.invoice.at)} ago`, 'invoice')}
+            {o.tradeIn && check(['form4', 'review', 'signed'].includes(c.stage) || signed, 'Trade-in Form 4', 'Required for the trade-in')}
+            {(idPending || o.dl.crn) && check(o.dl.status === 'Verified', `Customer ID · ${crnName}`, o.dl.status === 'Verified' ? `${o.dl.crn} · received via ${o.dl.crnVia}` : `${o.dl.state} licence, registering in ${o.customer.state} · requested ${fmtAge(Date.now() - (o.dl.requestedAt || Date.now()))} ago`)}
+          </div>
+        </SectionCard>
+        {(idPending || o.dl.crn) && <SectionCard part="crn" title={`Customer ID · ${crnName}`} subtitle="Collected here, before the final payment">{crnTracker(true)}</SectionCard>}
+        {o.rmDone.final && <InfoMessage tone="success" icon="circle-check-filled">Checked {fmtAge(Date.now() - o.rmDone.final)} ago. Ready for the final payment.</InfoMessage>}
       </>
     );
   }
@@ -627,23 +576,13 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     const done = o.promiseChecklist;
     body = (
       <>
-        <div className="sec-h">{SP_PAGE.title}</div>
-        {!done ? (
-          <>
-            <div className="sf-api">Prefilled from the deal's sales promise · {spForm.apiSources[0].key} (dummy)</div>
+        <SectionCard part="checklist" title={SP_PAGE.title} subtitle={!done ? `Prefilled from the deal's sales promise · ${spForm.apiSources[0].key}` : `Submitted ${fmtAge(Date.now() - o.rmDone.promise!)} ago and handed to Refurb`} badge={done ? { label: 'Submitted', variant: 'success' } : { label: o.promises.length ? `${o.promises.length} promise${o.promises.length > 1 ? 's' : ''}` : 'No promise', variant: o.promises.length ? 'information' : 'neutral' }}>
+          {!done ? (
             <SchemaForm stepper key={o.id} page={SP_PAGE} values={sp} showErrors={spTried} onChange={(id, v) => setSp((cur) => ({ ...cur, [id]: v }))} />
-          </>
-        ) : (
-          <>
-            <div className="tbox">
-              <table className="tl-t">
-                <thead><tr><th>Field</th><th>Answer</th></tr></thead>
-                <tbody>{Object.entries(done).map(([k, v]) => <tr key={k}><td>{SP_PAGE.fields.find((f) => f.field_key === k)?.label || k}</td><td>{Array.isArray(v) ? v.join(', ') : v}</td></tr>)}</tbody>
-              </table>
-            </div>
-            <div className="statusline">Checklist submitted {fmtAge(Date.now() - o.rmDone.promise!)} ago and handed to Refurb.</div>
-          </>
-        )}
+          ) : (
+            <DataTable columns={[{ key: 'k', label: 'Field' }, { key: 'v', label: 'Answer' }]} rows={Object.entries(done).map(([k, v]) => ({ k: SP_PAGE.fields.find((f) => f.field_key === k)?.label || k, v: <span className="wrap">{Array.isArray(v) ? v.join(', ') : String(v)}</span> }))} />
+          )}
+        </SectionCard>
       </>
     );
   }
@@ -671,9 +610,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     body = (
       <>
         {open && (
-          <div className="dcalc">
-            <div className="dc-title"><i>1</i>Discount calculator</div>
-            <div className="dc-h">Enter the final outstanding amount you want, and LeadVerse back-calculates the discount.</div>
+          <SectionCard part="calc" title="1 · Discount calculator" subtitle="Enter the outstanding amount you want; LeadVerse back-calculates the discount">
             <div className="dc-cols">
               <ul className="dc-list">
                 {li('DAP', dap(o))}
@@ -706,12 +643,12 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
                 <label className="tf" style={{ maxWidth: 260 }}><span>Required discount</span><div className="tf-ro">{money(calc.result)}</div></label>
               </>
             )}
-          </div>
+          </SectionCard>
         )}
 
-        {open && <div className="dc-title sec"><i>2</i>Generate discount</div>}
         {open && (
-          <div className="tform" style={{ marginTop: 8 }}>
+          <SectionCard part="generate" title="2 · Generate discount" subtitle={`Above ${money(DISCOUNT_LIMIT)} goes to the sales manager first`} badge={o.discount?.status === 'Awaiting approval' ? { label: 'Awaiting approval', variant: 'warning' } : undefined}>
+          <div className="tform">
             <label className="tf">
               <span>Discount type <i className="req">*</i></span>
               <div className="tf-sel"><select value={disc.type} onChange={(e) => setDisc({ ...disc, type: e.target.value as 'Flat' | 'Percent' })}><option value="Flat">Flat</option><option value="Percent">Percentage</option></select></div>
@@ -735,11 +672,11 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
               <div className="tf-ro"><span>Outstanding {money(due)} → <b>{money(Math.max(0, due - amt))}</b></span></div>
             </div>
           </div>
+          </SectionCard>
         )}
 
-        {o.discount && <div className={'statusline' + (o.discount.status === 'Awaiting approval' ? ' warn' : '')}>Discount {o.discount.type === 'Percent' ? o.discount.value + '% · ' : ''}{money(o.discount.amount)} · {o.discount.reason}{o.discount.till ? ` · valid till ${o.discount.till}` : ''} · <b>{o.discount.status}</b></div>}
-        {!open && !o.discount && <div className="statusline">No discount on this order.</div>}
-        <div className="hs" style={{ marginTop: 8 }}>b2c-admin · api/admin/getDiscount/&#123;orderId&#125;?finalDap · discount_value / discount_type</div>
+        {o.discount && <InfoMessage tone={o.discount.status === 'Awaiting approval' ? 'warning' : 'success'}>Discount {o.discount.type === 'Percent' ? o.discount.value + '% · ' : ''}{money(o.discount.amount)} · {o.discount.reason}{o.discount.till ? ` · valid till ${o.discount.till}` : ''} · <b>{o.discount.status}</b></InfoMessage>}
+        {!open && !o.discount && <InfoMessage tone="neutral">No discount on this order.</InfoMessage>}
       </>
     );
   }
@@ -752,7 +689,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     fx = !o.rmDone.vas ? ['Add each VAS to the order (b2c-admin VAS Sales) and recalculate DAP and the outstanding amount', 'Regenerate the tax invoice', 'Create the VAS install task for VAS ops when the money gate clears (R-04)', 'Warranty, insurance and ILOE need no install task'] : [];
     body = (
       <>
-        <div className="vas-h"><div className="sec-h" style={{ margin: 0 }}>Value Added Services</div><button className="btn" onClick={() => setVasModal(true)}>Add VAS</button></div>
+        <SectionCard part="vas" title="Value added services" subtitle="On the order now; each one changes the DAP and the invoice" right={<Button variant="secondary" icon="plus-large-outline" onClick={() => setVasModal(true)}>Add VAS</Button>}>
         <div className="tbox">
           <table className="tl-t">
             <thead><tr><th>VAS Item</th><th>Total Amount</th><th>Status</th><th>Details</th><th aria-label="Actions" /></tr></thead>
@@ -772,9 +709,10 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
             ))}</tbody>
           </table>
         </div>
+        </SectionCard>
         <DapBreakup o={o} />
         <RegistrationDetails o={o} />
-        {o.rmDone.vas && <div className="statusline">VAS confirmed {fmtAge(Date.now() - o.rmDone.vas)} ago.</div>}
+        {o.rmDone.vas && <InfoMessage tone="success" icon="circle-check-filled">VAS confirmed {fmtAge(Date.now() - o.rmDone.vas)} ago.</InfoMessage>}
         {vasModal && <AddVasModal o={o} onClose={() => setVasModal(false)} onAdd={(type, name) => { setVasModal(false); act((x, at) => addVas(x, VAS_CATALOG[type as keyof typeof VAS_CATALOG].find((p) => p.name === name)!, type, at)); }} />}
       </>
     );
@@ -804,17 +742,17 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
       : `Final price ${money(ti!.value)} set by the Trade-In team${ti!.offered && ti!.offered !== ti!.value ? ` (${money(ti!.offered)} at booking, ${ti!.value < ti!.offered ? '−' : '+'}${money(Math.abs(ti!.value - ti!.offered))})` : ''}. Confirm it with the customer.`;
     body = (
       <>
-        <div className={'statusline' + (tt && (tt.stage === 'disputed' || (fin && !accepted)) ? ' warn' : '')} style={{ marginTop: 14 }}>{status}</div>
-        <div className="sec-h">Trade-in Details <span className="hs">owned by the Trade-In team · read-only for the RM</span></div>
+        <InfoMessage tone={tt && (tt.stage === 'disputed' || (fin && !accepted)) ? 'warning' : accepted ? 'success' : 'information'}>{status}</InfoMessage>
+        <SectionCard part="details" title="Trade-in details" subtitle="Owned by the Trade-In team · read-only for the RM" badge={tt ? { label: stageDef(tt).label, variant: accepted ? 'success' : tt.stage === 'disputed' ? 'error' : fin ? 'warning' : 'neutral' } : undefined}>
         <div className="ti-form">
           {TI_FIELDS.map((fd, k) => (
             <label key={fd.key} className="tf"><span>{k + 1}. {fd.label.replace(' ($)', '')}</span><div className={'tf-ro' + (fd.key === 'tiValue' ? ' strong' : '')}>{shown(fd)}</div></label>
           ))}
         </div>
-        <div className="cs" style={{ marginTop: 8 }}>*If modified by the Trade-In team, changes are stored in the B2C database only, not in C2B.</div>
+        <small className="tu-hint">*If modified by the Trade-In team, changes are stored in the B2C database only, not in C2B.</small>
+        </SectionCard>
         {fin && !accepted && (
-          <>
-            <div className="sec-h">Customer decision on the trade-in price</div>
+          <SectionCard part="decision" title="Customer decision on the price" subtitle={`Final price ${money(ti!.value)}, set by the Trade-In team`}>
             <div className="ti-ans">
               <label className="tf"><span>Customer agrees with {money(ti!.value)}? <i className="req">*</i></span>
                 <div className="tf-sel"><select value={tiAns.agree} onChange={(e) => setTiAns({ ...tiAns, agree: e.target.value })}>
@@ -837,7 +775,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
                 </>
               )}
             </div>
-          </>
+          </SectionCard>
         )}
       </>
     );
@@ -880,16 +818,15 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     }
     body = (
       <>
-        <div className="vas-h"><div className="sec-h" style={{ margin: 0 }}>Payments</div>{['instalment', 'short'].includes(p.stage) && <button className="lnk-btn" disabled={!!primary?.block} title={primary?.block || ''} onClick={() => setPayModal(true)}>Add payment entry</button>}</div>
-        <div className="tbox">
-          <table className="tl-t"><thead><tr><th>Payment type</th><th>Source</th><th>Transaction ID</th><th>Reference</th><th>Amount</th><th>Paid</th><th>By</th></tr></thead>
-            <tbody>{o.payments.map((x, i) => <tr key={i} title={x.remarks || ''}><td>{x.type}</td><td>{x.method || '—'}</td><td className="mono">{x.txn || '—'}</td><td className="mono">{x.ref}</td><td>{money(x.amount)}</td><td>{fmtAge(Date.now() - x.at)} ago</td><td>{x.receivedBy || x.by}</td></tr>)}</tbody>
-          </table>
-        </div>
+        <SectionCard part="payments" title="Payments" subtitle="The ledger; each entry needs a transaction and a reference ID" badge={{ label: left ? `${money(left)} outstanding` : 'Paid in full', variant: left ? 'warning' : 'success' }}
+          right={['instalment', 'short'].includes(p.stage) && !primary?.block ? <LinkButton icon="plus-large-outline" onClick={() => setPayModal(true)}>Add payment entry</LinkButton> : undefined}>
+          <DataTable columns={[{ key: 'type', label: 'Payment type' }, { key: 'src', label: 'Source' }, { key: 'txn', label: 'Transaction ID' }, { key: 'ref', label: 'Reference' }, { key: 'amt', label: 'Amount', align: 'right' }, { key: 'paid', label: 'Paid' }, { key: 'by', label: 'By' }]}
+            rows={o.payments.map((x) => ({ type: x.type, src: x.method || '—', txn: <span className="mono">{x.txn || '—'}</span>, ref: <span className="mono">{x.ref}</span>, amt: money(x.amount), paid: `${fmtAge(Date.now() - x.at)} ago`, by: x.receivedBy || x.by }))} />
+        </SectionCard>
         <FinalBreakup o={o} />
         {payModal && <AddPaymentModal due={left} onClose={() => setPayModal(false)} onAdd={(amount, ref, e) => { setPayModal(false); act((x, at) => recordPayment(x, amount, ref, 'rm', at, e)); }} />}
-        {p.stage === 'final' && <StageFields t={p} onField={(k, v) => onField(p.id, k, v)} />}
-        {isDone(p) && <div className="statusline">Finance GFD. Fully paid.</div>}
+        {p.stage === 'final' && <SectionCard part="gfd" title="Finance GFD" subtitle="Properties HubSpot needs before Finance GFD"><StageFields t={p} onField={(k, v) => onField(p.id, k, v)} /></SectionCard>}
+        {isDone(p) && <InfoMessage tone="success" icon="circle-check-filled">Finance GFD. Fully paid.</InfoMessage>}
       </>
     );
   }
@@ -897,7 +834,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   if (step === 'prep') {
     const open = (['rwc', 'refurb', 'rego'] as const).map((j) => task(o, j)).filter((t) => t && !isDone(t));
     alts = open.map((t) => ({ label: `Nudge ${t!.journey === 'refurb' ? 'Refurb' : 'Registration & RWC'} on ${stageDef(t!).label}`, run: () => onComms(`Nudged the ${t!.journey === 'refurb' ? 'Refurb' : 'Registration & RWC'} team: ${stageDef(t!).label}`) }));
-    body = <PrepStatus o={o} />;
+    body = <SectionCard part="prep" title="Car prep" subtitle="Read-only: RWC, refurb, registration and VAS belong to their teams"><PrepStatus o={o} /></SectionCard>;
   }
 
   if (step === 'delivery') {
@@ -907,33 +844,28 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
       alts = !isDone(c) ? [{ label: o.bypassContract ? 'Remove contract gate bypass' : 'Bypass contract gate (by_pass_contract_gfd_for_delivery_slots)', run: () => onBypass(!o.bypassContract) }] : [];
       fx = ['Book the slot and create / move the Handover task for Delivery', 'Email + SMS confirmation to the customer', o.deliveryMode === 'Home delivery' ? 'Shipping charge is on the invoice' : 'Pick-up at ' + o.car.hub.split(' · ')[0]];
     }
+    const gates = gateStatus(o);
+    const hub = o.car.hub.split(' · ')[0];
+    // Slot capacity per day at the hub: a full day, or a taken time, shows as a disabled slot.
+    const DAYS = [['Wed 18 Nov', '3 of 6 handovers left'], ['Thu 19 Nov', '1 of 6 handovers left'], ['Fri 20 Nov', 'Fully booked', true], ['Sat 21 Nov', '5 of 6 handovers left']] as const;
+    const TIMES = [['9:00 am', 'Hub opens 8:30'], ['11:00 am', ''], ['1:00 pm', 'Taken by another handover', true], ['3:00 pm', 'Last slot of the day']] as const;
     body = (
       <>
-        <div className="fields" style={{ maxWidth: 420 }}>
-          <div className="fld"><label>Delivery mode</label>
-            <select value={o.deliveryMode} disabled={!!o.slot} onChange={(e) => act((x, at) => setDeliveryMode(x, e.target.value as Order['deliveryMode'], at))}>
-              <option>Pick up</option><option>Home delivery</option>
-            </select>
-          </div>
-          <div className="fld"><label>Shipping charge</label><div className="ro">{o.shipping ? money(o.shipping) : 'None (pick up)'}</div></div>
-        </div>
-        <div className="gatebox">
-          {gateStatus(o).map((g) => {
-            const na = 'na' in g && g.na; const ov = 'override' in g && g.override;
-            return (
-              <div key={g.key} className={'gate ' + (ov ? 'ov' : g.ok ? 'ok' : 'no')}>
-                <div className="gl">{g.ok ? '✓' : '○'} {g.label}</div>
-                <div style={{ color: 'var(--mute)', marginTop: 3 }}>{na ? 'Not interstate' : ov ? 'Bypassed by RM' : g.ok ? 'Done' : `Owner: ${PERSONAS[g.owner].short}`}</div>
-              </div>
-            );
-          })}
-        </div>
+        <SectionCard part="mode" title="Delivery mode" subtitle={o.deliveryMode === 'Home delivery' ? 'The shipping charge goes on the invoice' : `Customer collects at ${hub}`} badge={{ label: o.shipping ? money(o.shipping) + ' shipping' : 'No shipping charge', variant: 'neutral' }}>
+          <SegmentTabs value={o.deliveryMode} disabled={!!o.slot} options={[{ value: 'Pick up', label: 'Pick up at the hub' }, { value: 'Home delivery', label: 'Home delivery' }]} onChange={(v) => act((x, at) => setDeliveryMode(x, v as Order['deliveryMode'], at))} />
+        </SectionCard>
+        <SectionCard part="gates" title="Handover gates" subtitle="The slot opens when every gate is clear (HubSpot DW06a, OMS isDeliveryBookingAllowed)" badge={{ label: `${gates.filter((g) => g.ok).length} of ${gates.length} clear`, variant: clear ? 'success' : 'warning' }}>
+          <DataTable columns={[{ key: 'g', label: 'Gate' }, { key: 'w', label: 'Owner' }, { key: 'st', label: 'Status', isBadge: true }]}
+            rows={gates.map((g) => { const na = 'na' in g && g.na; const ov = 'override' in g && g.override; return { g: g.label, w: PERSONAS[g.owner].short, st: { label: na ? 'Not interstate' : ov ? 'Bypassed by RM' : g.ok ? 'Clear' : 'Open', variant: ov ? 'warning' : g.ok ? 'success' : 'neutral' } }; })} />
+        </SectionCard>
         {!o.slot ? (
-          <div className="fields" style={{ maxWidth: 420 }}>
-            <div className="fld"><label>Date</label><select value={date} onChange={(e) => setDate(e.target.value)}>{['Wed 18 Nov', 'Thu 19 Nov', 'Fri 20 Nov', 'Sat 21 Nov'].map((d) => <option key={d}>{d}</option>)}</select></div>
-            <div className="fld"><label>Time</label><select value={time} onChange={(e) => setTime(e.target.value)}>{['9:00 am', '11:00 am', '1:00 pm', '3:00 pm'].map((d) => <option key={d}>{d}</option>)}</select></div>
-          </div>
-        ) : <div className="statusline">Booked for <b>{o.slot.date} · {o.slot.time}</b> by {o.slot.by}. Confirmation sent by email and SMS.</div>}
+          <SectionCard part="slot" title="Handover slot" subtitle={clear ? `${hub} · pick a day, then a time` : 'Slots open once every gate is clear'} badge={clear ? { label: 'Open to book', variant: 'success' } : { label: 'Blocked', variant: 'warning' }}>
+            <div className="tu-slots-2">
+              <SelectionSlots title="Day" ariaLabel="Handover day" value={date} onChange={setDate} slots={DAYS.map(([d, n, full]) => ({ value: d, title: d, description: clear ? n : 'Gates not clear', disabled: !clear || !!full }))} />
+              <SelectionSlots title="Time" ariaLabel="Handover time" value={time} onChange={setTime} slots={TIMES.map(([t, n, taken]) => ({ value: t, title: t, description: clear ? n || undefined : undefined, disabled: !clear || !!taken }))} />
+            </div>
+          </SectionCard>
+        ) : <InfoMessage tone="success" icon="calendar-check-outline">Booked for {o.slot.date} · {o.slot.time} by {o.slot.by}. Confirmation sent by email and SMS.</InfoMessage>}
       </>
     );
   }
@@ -946,40 +878,81 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   const cancelled = p.stage === 'cancelled';
   const done = stepDone(o, step);
 
+  const track: Track = isByo ? 'byo' : 'cash';
+  const spec = stepByKey(track, step);
+  const specOf = (k: RmStep) => stepByKey(track, k);
+  const phases = PHASES.filter((ph) => SV.some((x) => specOf(x.key)?.phase === ph.id));
+  const curPh = spec?.phase;
+  const state = orderState(o);
+  const mainExit = spec?.exits.find((e) => e.main);
   return (
     <>
-      <div className={'stepper' + (stepsOpen ? '' : ' mini')}>
-        {SV.map((s) => {
-          const d = stepDone(o, s.key);
-          const st = s.key === step ? (d ? 'done' : 'act') : d ? 'done' : '';
-          return (
-            <button key={s.key} className={'sp sp-btn ' + st} onClick={() => setStep(s.key)}>
-              <div className="spdot">{d ? '✓' : ''}</div>
-              <div className="spl">{s.label}</div>
-              <div className="sps">{d ? 'completed' : s.key === step ? 'in progress' : 'pending'}</div>
-            </button>
-          );
-        })}
-        <button className="stog" aria-label={stepsOpen ? 'Collapse steps' : 'Expand steps'} onClick={toggleSteps}>{stepsOpen ? '⌃' : '⌄'}</button>
+      <div className={'rm-phases' + (stepsOpen ? '' : ' mini')}>
+        <div className="stagebar">
+          {phases.map((ph) => {
+            const keys = SV.filter((x) => specOf(x.key)?.phase === ph.id);
+            const allDone = keys.every((x) => stepDone(o, x.key));
+            const cls = ph.id === curPh ? 'act' : allDone ? 'done' : '';
+            return (
+              <button key={ph.id} className={'stg ' + cls} onClick={() => setStep((keys.find((x) => !stepDone(o, x.key)) || keys[0]).key)}>
+                <span className="stg-dot">{cls === 'done' ? '✓' : ph.id}</span>
+                <b>{ph.name}</b>
+                <small>{cls === 'done' ? 'completed' : cls === 'act' ? 'active' : `${keys.filter((x) => stepDone(o, x.key)).length} of ${keys.length} done`}</small>
+              </button>
+            );
+          })}
+          <button className="stog" aria-label={stepsOpen ? 'Hide the steps' : 'Show the steps'} onClick={toggleSteps}>{stepsOpen ? '⌃' : '⌄'}</button>
+        </div>
+        {stepsOpen && (
+          <div className="substeps">
+            {SV.filter((x) => specOf(x.key)?.phase === curPh).map((x) => {
+              const sp = specOf(x.key)!;
+              return <button key={x.key} className={'stepdot' + (x.key === step ? ' act' : stepDone(o, x.key) ? ' done' : '') + (sp.branch ? ' br' : '')} onClick={() => setStep(x.key)}>{sp.id} · {sp.name}</button>;
+            })}
+            {cancelled && <span className="chip c-red">Sale cancelled</span>}
+          </div>
+        )}
       </div>
       <div className="ws-body">
-        <div className="ws-h">{idx + 1}. {cur.label}{done && <span className="chip c-green">Done</span>}{cancelled && <span className="chip c-red">Sale cancelled</span>}</div>
-        {cur.where && <div className="ws-guide">{isByo && cur.key === 'deposit' ? 'Finance ticket · HubSpot 01b BYO' : cur.where}</div>}
-        {isByo && step !== 'deposit' && <div style={{ marginTop: 14 }}><ByoStatusCard o={o} act={act} open={byoOpen} setOpen={setByoOpen} /></div>}
-        {body}
+        <div className="rm-title">
+          <h2>{spec?.name || cur.label} <span className="step-id">{spec?.id}</span>{done && <span className="chip c-green">Done</span>}<span className={'chip st-' + STATES[state]}>{state}</span></h2>
+          <p>{spec?.screen.split(' › ')[1] === 'Lender finance' ? 'The balance comes from the customer’s lender: this step follows the BYO status.' : GUIDE[step]}</p>
+        </div>
+        <Dls className="rm-dls">
+          <div className="tu-stack">
+            {isByo && step !== 'deposit' && <ByoStatusCard o={o} act={act} open={byoOpen} setOpen={setByoOpen} />}
+            {body}
+          </div>
+        </Dls>
         {fx.length > 0 && <Fx items={fx} />}
         {primary?.block && <div className="blocked">{primary.block}</div>}
+        {spec && <button className="lnk-btn spec-tog" onClick={() => setShowSpec(!showSpec)}>{showSpec ? 'Hide' : 'Show'} the spec for {spec.id}</button>}
+        {spec && showSpec && (
+          <div className="specbox">
+            <div className="kvbox">
+              <div><span>Owner</span><b>{spec.owner}</b></div>
+              <div><span>Trigger</span><b>{spec.trigger}</b></div>
+              <div><span>Screen</span><b>{spec.screen}</b></div>
+              <div><span>Route</span><b className="mono">{spec.route}</b></div>
+              {spec.rules.length > 0 && <div><span>Rules</span><b>{spec.rules.join(' · ')}</b></div>}
+            </div>
+            <div className="lp-title">Data it reads and writes</div>
+            <ul className="bul">{spec.data.map((x) => <li key={x}>{x}</li>)}</ul>
+            <div className="lp-title">HubSpot today</div>
+            <p className="sp-p">{spec.hubspot}</p>
+          </div>
+        )}
       </div>
       <div className="ws-foot">
         <button className="btn prevb" disabled={idx === 0} onClick={() => go(-1)}>Previous</button>
-        <span className="exit">{done ? 'Step complete' : `Step ${idx + 1} of ${SV.length}`}</span>
+        <span className="exit">{done ? 'Step complete' : `${spec?.exits.length || 0} exits · state on main exit: ${mainExit?.state || 'none'}`}</span>
         <div className="split">
           {primary ? (
-            <button className="btn primary" disabled={!!primary.block || cancelled} title={primary.block} onClick={() => { primary!.run(); setMenu(false); }}>Next: {primary.label}</button>
+            <button className="btn primary" disabled={!!primary.block || cancelled} title={primary.block} onClick={() => { primary!.run(); setMenu(false); }}>{primary.label}</button>
           ) : (
-            <button className="btn primary" disabled={idx === SV.length - 1 && done} onClick={goNextOpen}>{idx === SV.length - 1 ? 'All done' : 'Go to next open step'}</button>
+            <button className="btn primary" disabled={idx === SV.length - 1 && done} onClick={goNextOpen}>{idx === SV.length - 1 ? 'All done' : 'Next: ' + (specOf(SV.slice(idx + 1).find((x) => !stepDone(o, x.key))?.key || step)?.name || 'next open step')}</button>
           )}
-          <button className="btn primary caret" aria-label="More actions" onClick={() => setMenu(!menu)}>▾</button>
+          <button className="btn primary caret" aria-label="More exits" onClick={() => setMenu(!menu)}>▾</button>
           {menu && (
             <div className="menu">
               {alts.map((a) => <button key={a.label} className={a.tone === 'danger' ? 'danger' : ''} disabled={!!a.block} title={a.block} onClick={() => { a.run(); setMenu(false); }}>{a.label}{a.block && <span className="why2">{a.block}</span>}</button>)}
@@ -991,4 +964,39 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
       </div>
     </>
   );
+}
+
+// One line under each step's title.
+const GUIDE: Record<RmStep, string> = {
+  deposit: 'Confirm the deposit and whether a trade-in is coming.',
+  docs: 'Check the licence against the order before registration needs it.',
+  discount: 'Apply what was agreed on the lot, from the outstanding amount or the discount itself.',
+  vas: 'Confirm add-ons; each one changes the drive-away price.',
+  promise: 'Turn what the ground team promised into Refurb’s checklist.',
+  tradein: 'Agree the Trade-In team’s final price with the customer.',
+  final: 'The contract and invoice must match the order before the final payment.',
+  balance: 'Collect the balance and reach Finance GFD.',
+  prep: 'Where the car is, team by team. Read-only.',
+  delivery: 'Pick up or home delivery, then a slot once every gate is clear.',
+};
+
+// The order's state, the badge PISTON shows beside the step title.
+export function orderState(o: Order): string {
+  const p = task(o, 'payment');
+  if (p?.stage === 'cancelled') return 'SALE CANCELLED';
+  if (o.slot) return 'DELIVERY BOOKED';
+  if (gatesClear(o)) return 'READY TO BOOK';
+  if (o.paymentMode === 'BYO') {
+    if (p?.stage === 'settled') return 'LOAN SETTLED';
+    if (p?.stage === 'remit') return 'FINANCE GFD';
+    if (p?.stage === 'remitShort') return 'OUTSTANDING DEPOSIT';
+    if (p?.stage === 'approved') return 'LENDER APPROVED';
+    if (p?.stage === 'awaiting') return 'AWAITING 3P LENDER';
+    return 'DEPOSIT PAID';
+  }
+  if (gatesClear(o)) return 'READY TO BOOK';
+  if (isDone(p)) return 'FINANCE GFD';
+  if (p?.stage === 'short') return 'OUTSTANDING DEPOSIT';
+  if (p && p.stage !== 'deposit') return 'GFR';
+  return 'DEPOSIT PAID';
 }

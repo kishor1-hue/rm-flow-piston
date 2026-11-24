@@ -53,7 +53,7 @@ export function ByoStatusCard({ o, act, open, setOpen }: { o: Order; act: Act; o
   const nx = byoNext(o);
   return (
     <Dls className="byo-pin">
-      <SectionCard
+      <SectionCard part="byo"
         title={<>BYO status <span className="byo-sub">01b_BYO Finance Customer</span></>}
         subtitle={<>Next: <b>{nx.label}</b>{nx.who && <> · {nx.who}</>}</>}
         badge={{ label: byoLabel(t.stage), variant: BYO_TONE[t.stage] || 'neutral' }}
@@ -173,7 +173,7 @@ export function ByoStatusField({ o, act, open, setOpen }: { o: Order; act: Act; 
   const next: Record<string, string> = { deposit: 'awaiting', awaiting: 'approved', approved: 'remit', remit: 'settled' };
   return (
     <Dls>
-      <SectionCard title="BYO status" subtitle={<>Finance ticket {o.id}-{o.customer.name.split(' ')[0]} · owner RM · same values as HubSpot 01b</>} badge={{ label: byoHs(t.stage), variant: BYO_TONE[t.stage] }}>
+      <SectionCard part="byostatus" title="BYO status" subtitle={<>Finance ticket {o.id}-{o.customer.name.split(' ')[0]} · owner RM · same values as HubSpot 01b</>} badge={{ label: byoHs(t.stage), variant: BYO_TONE[t.stage] }}>
         <div className="tu-row2">
           <Dropdown label="Ticket status" value={t.stage}
             options={STAGES.filter((s) => s.key !== 'cancelled').map((s) => ({ value: s.key, label: s.hs.replace('NEW · today the ticket waits at Approved from 3P Lender', s.label + ' (new)'), disabled: s.key !== t.stage && s.key !== next[t.stage] }))}
@@ -230,16 +230,16 @@ export function ByoLenderStep({ o, onAddPayment }: { o: Order; onAddPayment: () 
   return (
     <Dls>
       <div className="tu-stack">
-        <SectionCard title="Payments" subtitle="Deposit, the lender’s remittance and any gap the customer pays" right={t.stage === 'remitShort' || (t.stage === 'approved' && left > (b.approvedAmount ?? 0)) ? <LinkButton icon="plus-large-outline" onClick={onAddPayment}>Add payment entry</LinkButton> : undefined}>
+        <SectionCard part="payments" title="Payments" subtitle="Deposit, the lender’s remittance and any gap the customer pays" right={t.stage === 'remitShort' || (t.stage === 'approved' && left > (b.approvedAmount ?? 0)) ? <LinkButton icon="plus-large-outline" onClick={onAddPayment}>Add payment entry</LinkButton> : undefined}>
           <DataTable columns={[{ key: 'type', label: 'Payment type' }, { key: 'src', label: 'Source' }, { key: 'ref', label: 'Reference' }, { key: 'amt', label: 'Amount', align: 'right' }, { key: 'when', label: 'Received' }, { key: 'by', label: 'By' }, { key: 'st', label: 'Status', isBadge: true }]} rows={pays} />
         </SectionCard>
-        <SectionCard title="Price breakup" subtitle="What the lender covers and what is left for the customer">
+        <SectionCard part="price" title="Price breakup" subtitle="What the lender covers and what is left for the customer">
           <DataTable columns={[{ key: 'k', label: 'Item', subTextKey: 's' }, { key: 'v', label: 'Amount', align: 'right' }]} rows={breakup} />
         </SectionCard>
-        <SectionCard title="What each status opens for other teams" subtitle="Tasks are created by the status, never by which RM step is open">
+        <SectionCard part="opens" title="What each status opens for other teams" subtitle="Tasks are created by the status, never by which RM step is open">
           <DataTable columns={[{ key: 'when', label: 'When the status reaches' }, { key: 'what', label: 'Task' }, { key: 'team', label: 'Team' }, { key: 'st', label: 'Now', isBadge: true }]} rows={trig} />
         </SectionCard>
-        <SectionCard title="Status history" subtitle="Every move, who made it and the evidence behind it">
+        <SectionCard part="history" title="Status history" subtitle="Every move, who made it and the evidence behind it">
           <DataTable columns={[{ key: 'st', label: 'Status', isBadge: true }, { key: 'when', label: 'When' }, { key: 'by', label: 'By' }, { key: 'src', label: 'From', isBadge: true }, { key: 'note', label: 'Evidence' }]} rows={hist} />
         </SectionCard>
       </div>

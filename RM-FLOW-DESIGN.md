@@ -431,7 +431,46 @@ LeadVerse treats it as **one status owned by the order's finance task, not by an
 - **Lender deadlines:** the 2 / 5 business-day deadlines aren't enforced with customers yet; the charges are undecided.
 - **Unused 01b stages:** to be cleaned up once everything is on stage.
 
-## 11. Run it
+## 11. Journey viewer, in the PISTON structure
+
+The app now opens on a journey viewer laid out like the PISTON spec (piston-leadverse-proto): journey rail on the left,
+the Leadverse screen at that step in a browser frame with numbered anatomy pins, and Spec or Anatomy on the right.
+It uses the PISTON *structure* only. The phases and steps are the RM order journey's own, not PISTON's P-I-S-T-O-N.
+
+| Phase | Steps | Who |
+| --- | --- | --- |
+| V · Verify | V1 Verify deposit, V2 Customer documents | RM, the day the deposit lands |
+| D · Deal | D1 Discount, D2 Add VAS, D3 Sales promise, D4 Trade-in (branch) | RM, with the Trade-In team |
+| C · Contract | C1 Contract & invoice | RM, the customer on DocuSign |
+| F · Funds | F1 Balance payment (Cash) or Lender finance (BYOF) | RM and FinOps; BYOF: the customer's lender |
+| H · Handover | H1 Car prep status, H2 Book delivery | RM, with Refurb, Registration and Delivery |
+
+- **Tracks:** Cash and BYOF, switched at the top like PISTON's Booked / Walk-in / Video TD. BYOF changes V1 (the BYO status
+  property), F1 (Lender finance) and adds the pinned BYO status card to every step after Verify.
+- **The frame is live:** it renders the real RM order view for a demo order at that step, so every action works. Stepping
+  inside the frame moves the rail with it.
+- **Spec:** description, owner, the "New:" change from HubSpot, source (triggered by, data from), screen and route, entry
+  conditions, exits with the state each one sets, HubSpot today, and the rules that fire.
+- **Anatomy:** numbered parts, each with its `@cspl/*` component; the numbers match the pins on the screen.
+- **Blueprint:** the two flows (source, entry, exit states, main path), then every phase as a table of steps.
+- **Fields:** every field on every screen, per phase. **What changed:** six changes from HubSpot, each with before and after.
+  Sources are labelled: paraphrased from the FinOps call, from the brief, or a design decision.
+- **Order states** (the badge beside each step title, and the lead pane's States tab): DEPOSIT PAID, GFR, AWAITING 3P LENDER,
+  LENDER APPROVED, OUTSTANDING DEPOSIT, FINANCE GFD, READY TO BOOK, DELIVERY BOOKED, LOAN SETTLED, SALE CANCELLED.
+- **Routes:** `#cash-V1`, `#byo-F1`, `#blueprint-cash`, `#fields-byo`, `#changes-cash`; `#app` is the full Leadverse app
+  (Open the app, or Screen only, from the viewer; Journey spec in the app's rail goes back).
+
+**The RM screen itself now follows the PISTON screen layout:** a phase bar with the steps of the current phase as chips,
+the title with its step ID and the order-state badge, every block of the step as a DLS `SectionCard`, the "When you take
+the main exit, LeadVerse will" box, "Show the spec for V1", and a footer with the exit count and the state the main exit
+sets. The lead pane has a status pill, Call / WhatsApp / Email, and Details / States / Teams / Activity; the right panel
+has CarGPT and a Customer view (the order page the customer sees).
+
+**DLS:** every step's action area is Turbo UI: `SectionCard`, `Table`, `Badge`, `SegmentTabs` (yes/no checks, delivery
+mode), `FetchedInfoCard`, `InformationMessage`, `Button`, `LinkButton`, and `SelectionSlots` for the handover day and time,
+where a fully booked day and a taken time are disabled slots, and every slot stays disabled while a gate is open.
+
+## 12. Run it
 
 ```bash
 npm --prefix app install

@@ -727,3 +727,78 @@ tr.vas-x small { color: var(--mute); }
 .pm-modal { width: min(560px, 100%); }
 .pm-list { padding: 4px 4px 4px 22px; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; color: var(--ink-2); line-height: 1.5; }
 .modal-f { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--line); }
+
+/* ---------- RM screen in the PISTON layout: phase bar, step chips, title with ID and state, spec box ---------- */
+.rm-phases { background: #fff; border-bottom: 1px solid var(--line); position: relative; }
+.rm-phases .stagebar { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); padding: 12px 64px 10px 22px; position: relative; }
+.stg { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; border: 1.5px solid transparent; background: none; border-radius: 6px; padding: 4px 6px 6px; }
+.stg::before { content: ""; position: absolute; top: 18px; right: 50%; width: 100%; height: 2px; background: var(--line-2); z-index: 0; }
+.stg:first-child::before { display: none; }
+.stg.done::before, .stg.act::before { background: #2E7D4F; }
+.stg-dot { position: relative; z-index: 1; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; background: #E2E8F0; color: #64748B; }
+.stg.done .stg-dot { background: #2E7D4F; color: #fff; }
+.stg.act .stg-dot { background: var(--lv); color: #fff; }
+.stg.act { border-color: #2563EB; }
+.stg b { font-size: 14px; margin-top: 4px; }
+.stg small { font-size: 11.5px; color: var(--mute); }
+.stg:hover { background: var(--lv-wash); }
+.rm-phases.mini .stagebar { padding-bottom: 8px; }
+.substeps { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 22px 12px; align-items: center; }
+.substeps .stepdot { font-size: 12px; color: var(--mute); border: 1px solid #E6E9F0; border-radius: 999px; padding: 4px 11px; background: #fff; }
+.substeps .stepdot.done { color: var(--green-ink); border-color: #BFE8D3; background: var(--green-bg); }
+.substeps .stepdot.act { color: #fff; background: var(--lv); border-color: var(--lv); font-weight: 600; }
+.substeps .stepdot.br { border-style: dashed; }
+.rm-title { margin-bottom: 16px; }
+.rm-title h2 { font-size: 24px; font-weight: 700; letter-spacing: -.01em; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rm-title p { color: var(--mute); margin-top: 4px; font-size: 14.5px; }
+.step-id { font-size: 11px; font-weight: 600; color: var(--mute); background: #EEF1F6; border-radius: 6px; padding: 2px 7px; letter-spacing: .02em; }
+.chip.st-brand { background: var(--lv-soft); color: var(--lv-ink); }
+.chip.st-green { background: var(--green-bg); color: var(--green-ink); }
+.chip.st-amber { background: var(--amber-bg); color: var(--amber-ink); }
+.chip.st-red { background: var(--red-bg); color: var(--red); }
+.chip.st-grey { background: var(--grey-bg); color: var(--grey-ink); }
+.rm-title .chip { font-size: 11px; letter-spacing: .03em; }
+.rm-dls { max-width: 1040px; }
+.rm-dls .tu-stack { gap: 16px; }
+.rm-rows { display: flex; flex-direction: column; }
+.rm-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-top: 1px solid var(--tu-border-tertiary); }
+.rm-rows .rm-row:first-child, .tu-sec .grid > .rm-row { border-top: 0; padding-top: 0; }
+.rm-row > div:first-child { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.rm-row b { font-size: 14.5px; font-weight: 600; color: var(--tu-text-primary); }
+.rm-row small { font-size: 13px; color: var(--tu-text-secondary); }
+.rm-row.no b { color: var(--tu-red-700); }
+.rm-row .tu-seg { flex: 0 0 auto; min-width: 150px; }
+.rm-dls .tbox, .rm-dls .dl-imgs, .rm-dls .chks, .rm-dls .tform, .rm-dls .ti-form, .rm-dls .ti-ans { margin-top: 0; }
+.spec-tog { margin-top: 14px; display: inline-block; }
+.specbox { margin-top: 6px; border: 1px dashed var(--line-2); border-radius: 12px; padding: 12px 14px; background: #fff; max-width: 1040px; }
+.specbox .lp-title { margin: 12px 0 4px; }
+.specbox .kvbox { display: grid; gap: 6px; }
+.specbox .kvbox > div { display: grid; grid-template-columns: 110px 1fr; gap: 10px; font-size: 13px; }
+.specbox .kvbox span { color: var(--mute); }
+.bul { padding-left: 18px; font-size: 13px; color: var(--ink-2); line-height: 1.6; }
+.sp-p { font-size: 13px; color: var(--ink-2); line-height: 1.55; }
+.ws-body .fx { max-width: 1040px; }
+.specbox .kvbox b { text-align: left; font-weight: 500; }
+.lp-contact { display: flex; gap: 6px; padding: 0 18px 10px; flex-wrap: wrap; align-items: center; }
+.lp-contact .follow { margin-left: auto; }
+.ws-id .chip { margin-left: auto; font-size: 10.5px; letter-spacing: .03em; }
+.ws-left .kvbox { margin-bottom: 4px; }
+.ws-left .lp-search { padding: 8px 0 2px; }
+.st-row.act .ft .chip { box-shadow: 0 0 0 2px var(--lv-soft); }
+.st-row:not(.done):not(.act) { opacity: .6; }
+.gpt-tabs { display: flex; gap: 4px; background: #EEF1F6; padding: 3px; border-radius: 10px; }
+.gpt-tabs button { border: 0; background: none; font-size: 12.5px; font-weight: 600; color: var(--mute); padding: 5px 10px; border-radius: 8px; }
+.gpt-tabs button.on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(15,23,42,.08); }
+.phone { border: 6px solid #0F172B; border-radius: 26px; overflow: hidden; background: #fff; margin: 4px auto; max-width: 270px; }
+.ph-bar { background: #F1F5F9; font-size: 11px; color: var(--mute); text-align: center; padding: 6px; }
+.ph-body { padding: 14px 14px 18px; }
+.ph-car { font-weight: 700; font-size: 15px; }
+.ph-sub { font-size: 12px; color: var(--mute); margin-top: 2px; }
+.ph-prog { margin-top: 14px; display: flex; flex-direction: column; gap: 12px; }
+.ph-prog > div { display: flex; gap: 10px; align-items: flex-start; }
+.ph-prog > div > span { flex: 0 0 12px; height: 12px; border-radius: 50%; background: #E2E8F0; margin-top: 3px; }
+.ph-prog > div.done > span { background: #2E7D4F; }
+.ph-prog > div.act > span { background: var(--lv); box-shadow: 0 0 0 4px var(--lv-soft); }
+.ph-prog b { display: block; font-size: 13px; }
+.ph-prog small { font-size: 12px; color: var(--mute); }
+.ph-prog > div:not(.done):not(.act) b { color: var(--mute); }

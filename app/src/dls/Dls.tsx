@@ -19,11 +19,11 @@ export const Badge = ({ children, variant = 'neutral', size = 'xs', icon }: { ch
 );
 
 // @cspl/section-card, framed. The badge sits right of the title
-export function SectionCard({ title, subtitle, badge, right, children, framed = true }: {
-  title: ReactNode; subtitle?: ReactNode; badge?: { label: ReactNode; variant: BadgeVariant }; right?: ReactNode; children?: ReactNode; framed?: boolean;
+export function SectionCard({ title, subtitle, badge, right, children, framed = true, part }: {
+  title: ReactNode; subtitle?: ReactNode; badge?: { label: ReactNode; variant: BadgeVariant }; right?: ReactNode; children?: ReactNode; framed?: boolean; part?: string;
 }) {
   return (
-    <section className={'tu-sec' + (framed ? ' framed' : '')}>
+    <section className={'tu-sec' + (framed ? ' framed' : '')} data-part={part}>
       <div className="hd">
         <div className="tx"><h4>{title}</h4>{subtitle && <p>{subtitle}</p>}</div>
         {(badge || right) && <div className="tu-hd-r">{right}{badge && <Badge variant={badge.variant}>{badge.label}</Badge>}</div>}
@@ -138,3 +138,31 @@ export const LinkButton = ({ children, icon, onClick }: { children: ReactNode; i
 export const InfoMessage = ({ children, tone = 'information', icon = 'info-outline' }: { children: ReactNode; tone?: BadgeVariant; icon?: string }) => (
   <div className={'tu-info ' + tone}><Icon name={icon} size="sm" /><span>{children}</span></div>
 );
+
+// @cspl/segment-tabs: one choice from two to four, the active one lifted
+export function SegmentTabs<T extends string>({ value, options, onChange, disabled }: { value: T; options: { value: T; label: string }[]; onChange: (v: T) => void; disabled?: boolean }) {
+  return <div className="tu-seg" role="tablist">{options.map((o) => <button key={o.value} type="button" role="tab" aria-selected={value === o.value} className={value === o.value ? 'on' : ''} disabled={disabled} onClick={() => onChange(o.value)}>{o.label}</button>)}</div>;
+}
+
+// @cspl/selection-slots: a single-select list of slots, a radio on the right; a disabled slot can't be picked
+export type Slot = { value: string; title: string; description?: string; disabled?: boolean };
+export function SelectionSlots({ title, slots, value, onChange, ariaLabel = 'Options' }: { title?: string; slots: Slot[]; value?: string; onChange: (v: string) => void; ariaLabel?: string }) {
+  return (
+    <div className="tu-slots">
+      {title && <h5>{title}</h5>}
+      <section className="box" role="radiogroup" aria-label={ariaLabel}>
+        {slots.map((s) => {
+          const on = s.value === value;
+          return (
+            <div key={s.value} role="radio" aria-checked={on} aria-disabled={s.disabled || undefined} tabIndex={s.disabled ? -1 : 0}
+              className={'slot' + (on ? ' on' : '') + (s.disabled ? ' off' : '')}
+              onClick={() => !s.disabled && !on && onChange(s.value)} onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && !s.disabled) { e.preventDefault(); onChange(s.value); } }}>
+              <div className="tx"><b>{s.title}</b>{s.description && <small>{s.description}</small>}</div>
+              <span className="rd" aria-hidden="true" />
+            </div>
+          );
+        })}
+      </section>
+    </div>
+  );
+}

@@ -402,3 +402,22 @@
 .tu-fic .items.c4{grid-template-columns:repeat(4,minmax(0,1fr));}
 @media (max-width:860px){ .tu-fic .items.c4{grid-template-columns:repeat(2,minmax(0,1fr));} }
 .tu-table td .p .wrap{white-space:normal; display:block; min-width:260px;}
+
+/* @cspl/selection-slots (selection-slots/src/index.tsx): rounded-160 box, p-120, gap-120; each slot rounded-120 with a
+   border-primary-focus line, selected = border-2 brand + surface-brand-subtle; disabled = text-primary-disabled, not-allowed */
+.tu-slots{display:flex; flex-direction:column; gap:12px; width:100%;}
+.tu-slots h5{margin:0; font-size:15px; line-height:1.2; font-weight:600; color:var(--tu-text-primary);}
+.tu-slots .box{display:flex; flex-direction:column; gap:12px; padding:12px; border-radius:16px; border:1px solid var(--tu-border-tertiary); background:var(--tu-surface);}
+.tu-slots .slot{display:flex; align-items:center; min-height:56px; border-radius:12px; border:1px solid var(--tu-border-secondary); background:var(--tu-surface); cursor:pointer; overflow:hidden; outline:none;}
+.tu-slots .slot:focus-visible{box-shadow:0 0 0 2px var(--tu-brand-200);}
+.tu-slots .slot.on{border:2px solid var(--tu-brand); background:var(--tu-brand-50);}
+.tu-slots .slot.off{cursor:not-allowed; background:var(--tu-surface-subtle);}
+.tu-slots .slot .tx{flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:4px; padding:10px 16px;}
+.tu-slots .slot .tx b{font-size:15px; line-height:1.2; font-weight:600; color:var(--tu-text-primary);}
+.tu-slots .slot .tx small{font-size:13px; line-height:1.38; color:var(--tu-text-secondary);}
+.tu-slots .slot.off .tx b, .tu-slots .slot.off .tx small{color:var(--tu-text-tertiary);}
+.tu-slots .slot .rd{flex:0 0 20px; width:20px; height:20px; margin-right:16px; border-radius:50%; border:1.5px solid var(--tu-border-secondary); background:var(--tu-surface);}
+.tu-slots .slot.on .rd{border:6px solid var(--tu-brand);}
+.tu-slots .slot.off .rd{background:var(--tu-surface-tertiary); border-color:var(--tu-border-tertiary);}
+.tu-slots-2{display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:16px;}
+.tu-seg button:disabled{cursor:not-allowed; opacity:.6;}

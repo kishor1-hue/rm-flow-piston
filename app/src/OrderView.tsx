@@ -7,7 +7,8 @@ import {
 } from './engine';
 import { PERSONA_JOURNEYS } from './Board';
 import { Field } from './TaskCard';
-import { firstOpenStep, RmFlow, type RmStep } from './RmFlow';
+import { firstOpenStep, orderState, RmFlow, type RmStep } from './RmFlow';
+import { FLOWS, STATES } from './journey/spec';
 
 function aiSummary(o: Order, now: number) {
   const parts: string[] = [];
@@ -107,7 +108,7 @@ function PayModeControl({ o, onAct }: { o: Order; onAct: (fn: (o: Order, at: num
 function LeftPanel({ o, now, persona, onDemo, onComms, onAct, collapsed, toggle }: {
   o: Order; now: number; persona: PersonaId; onDemo: (tid: string) => void; onComms: (text: string) => void; onAct: (fn: (o: Order, at: number) => void) => void; collapsed: boolean; toggle: () => void;
 }) {
-  const [tab, setTab] = useState<'contact' | 'order' | 'car' | 'pricing' | 'docs' | 'teams' | 'activity'>('contact');
+  const [tab, setTab] = useState<'details' | 'states' | 'teams' | 'activity'>('details');
   const [feed, setFeed] = useState<'all' | 'rule' | 'comms'>('all');
   const [find, setFind] = useState('');
   const [note, setNote] = useState('');
@@ -117,45 +118,70 @@ function LeftPanel({ o, now, persona, onDemo, onComms, onAct, collapsed, toggle 
   const rego = task(o, 'rego');
   const [first, ...rest] = o.customer.name.split(' ');
   const groups: Record<string, KV[]> = {
-    contact: [['First Name', first], ['Last Name', rest.join(' ')], ['Email', o.customer.email], ['Phone With Country Code', o.customer.phone], ['Suburb', o.customer.suburb], ['State', o.customer.state], ['Relationship Manager', 'Priyanka A.']],
-    order: [['Order ID', o.id], ['Appointment ID', o.apptId], ['Order stage', RM_STAGES.find((s) => s.key === rmStage(o))!.label], ['HubSpot deal stage', hsDealStage(o)], ['Payment mode', o.paymentMode + (o.lender ? ' · ' + o.lender : '')], ['Payment method', o.paymentMethod], ['Proof of payment', o.proofUrl || '—'], ['Sales promise?', o.promises.length ? 'Yes' : 'No'], ...o.promises.map((p): KV => ['Sales promise', p]), ['Discount', o.discount ? `${money(o.discount.amount)} · ${o.discount.status}` : 'None'], ['Trade-in', o.tradeIn ? `${o.tradeIn.car} · ${money(o.tradeIn.value)}` : 'No'], ['Shipping charges', o.shipping ? money(o.shipping) : '$0'], ['Delivery mode', o.deliveryMode], ['Delivery slot', o.slot ? `${o.slot.date} · ${o.slot.time}` : 'Not booked']],
+    payment: [['Payment method', o.paymentMethod], ...(o.lender ? [['Lender', o.lender] as KV] : []), ['Outstanding', outstanding(o) > 0 ? money(outstanding(o)) : 'Paid'], ['Finance ticket', task(o, 'payment') ? stageDef(task(o, 'payment')!).label : '—']],
+    contact: [['Mobile', o.customer.phone], ['Email', o.customer.email], ['Suburb', `${o.customer.suburb}, ${o.customer.state}`], ['Relationship manager', 'Priyanka A.'], ['Sales promise', o.promises.length ? o.promises.join(' · ') : 'None']],
+    order: [['Order ID', o.id], ['Appointment ID', o.apptId], ['Order stage', RM_STAGES.find((s) => s.key === rmStage(o))!.label], ['HubSpot deal stage', hsDealStage(o)], ['Sales promise?', o.promises.length ? 'Yes' : 'No'], ...o.promises.map((p): KV => ['Sales promise', p]), ['Discount', o.discount ? `${money(o.discount.amount)} · ${o.discount.status}` : 'None'], ['Trade-in', o.tradeIn ? `${o.tradeIn.car} · ${money(o.tradeIn.value)}` : 'No'], ['Shipping charges', o.shipping ? money(o.shipping) : '$0'], ['Delivery mode', o.deliveryMode], ['Delivery slot', o.slot ? `${o.slot.date} · ${o.slot.time}` : 'Not booked']],
     car: [['Car', `${o.car.year} ${o.car.make} ${o.car.model}`], ['Odometer', o.car.km.toLocaleString() + ' km'], ['Colour', o.car.colour], ['VIN', o.car.vin], ['Located at', o.car.hub], ...(o.interstate ? [['Interstate', `${o.car.hubState} → ${o.customer.state}`] as KV] : []), ['Rego', (rego?.fields.regoNumber as string) || 'Not yet']],
     pricing: [['Car price', money(o.price)], ...o.vas.map((v): KV => ['+ ' + v.name, money(v.price)]), ...(o.tradeIn ? [['− Trade-in', money(o.tradeIn.value)] as KV] : []), ['Outstanding', outstanding(o) > 0 ? money(outstanding(o)) : 'Paid']],
   };
   const fl = find.trim().toLowerCase();
-  const boxes = (kv: KV[]) => kv.filter(([k, v]) => !fl || (k + v).toLowerCase().includes(fl)).map(([k, v], i) => (
-    <div key={k + i} className="fbox"><label>{k}</label><div>{v || '-'}</div></div>
-  ));
-  const TABS = [['contact', '☺ Contact'], ['order', '▤ Order'], ['car', '⛟ Car'], ['pricing', '$ Pricing'], ['docs', `▣ Document Workflow${(['contract', 'invoice'] as DocKey[]).some((k) => docOutdated(o, k)) ? ' ·!' : ''}`], ['teams', `Teams · ${others.filter((t) => stageDef(t).kind !== 'done').length}`], ['activity', 'Activity']] as const;
+  const kv = (rows: KV[]) => <div className="kvbox">{rows.filter(([k, v]) => !fl || (k + v).toLowerCase().includes(fl)).map(([k, v], i) => <div key={k + i}><span>{k}</span><b>{v || '—'}</b></div>)}</div>;
+  const track = o.paymentMode === 'BYO' ? 'byo' : 'cash';
+  const cur = orderState(o);
+  const stateLine: [string, string][] = track === 'byo'
+    ? [['DEPOSIT PAID', 'Deposit on the order'], ['AWAITING 3P LENDER', 'Deposit verified; lender clocks start'], ['LENDER APPROVED', 'Approval letter: GFR'], ['OUTSTANDING DEPOSIT', 'Only when the remittance is short'], ['FINANCE GFD', 'Remittance covers the balance'], ['DELIVERY BOOKED', 'Every gate clear, slot booked']]
+    : [['DEPOSIT PAID', 'Deposit on the order'], ['GFR', 'First instalment confirmed: car prep starts'], ['OUTSTANDING DEPOSIT', 'Only when a payment falls short'], ['FINANCE GFD', 'Balance paid in full'], ['READY TO BOOK', 'Every gate clear'], ['DELIVERY BOOKED', 'Slot booked']];
+  void FLOWS;
+  const TABS = [['details', 'Details'], ['states', 'States'], ['teams', `Teams (${others.filter((t) => stageDef(t).kind !== 'done').length})`], ['activity', 'Activity']] as const;
   return (
     <div className={'ws-left' + (collapsed ? ' shut' : '')}>
       <button className="lp-tog" aria-label={collapsed ? 'Show details' : 'Hide details'} onClick={toggle}>{collapsed ? '›' : '‹'}</button>
       {!collapsed && (
         <>
           <div className="ws-id">
-            <div className="avatar">{first[0]}</div>
+            <div className="avatar">{first[0]}{rest[0]?.[0] || ''}</div>
             <div className="ws-name">{o.customer.name}</div>
-            <button className={'follow' + (follow ? ' on' : '')} onClick={() => setFollow(!follow)}>{follow ? '◉ Following · 1' : '○ Follow'}</button>
+            <span className={'chip st-' + STATES[orderState(o)]}>{orderState(o)}</span>
           </div>
-          <div className="lp-search"><input placeholder="Search" value={find} onChange={(e) => setFind(e.target.value)} /></div>
+          <div className="lp-contact">
+            {['Call', 'WhatsApp', 'Email'].map((c) => <button key={c} className="btn sm" onClick={() => onComms(`${c} to ${c === 'Email' ? o.customer.email : o.customer.phone}`)}>{c}</button>)}
+            <button className={'follow' + (follow ? ' on' : '')} onClick={() => setFollow(!follow)}>{follow ? '◉ Following' : '○ Follow'}</button>
+          </div>
           <div className="ws-tabs">
             {TABS.map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}
           </div>
           <div className="ws-scroll">
-            {tab in groups && (
+            {tab === 'details' && (
               <>
-                {tab === 'contact' && <div className="summary-box"><b>✦ Summary</b><p>{aiSummary(o, now)}</p></div>}
-                <div className="lp-title">{({ contact: 'Contact', order: 'Order', car: 'Car', pricing: 'Pricing' } as Record<string, string>)[tab]}</div>
-                {tab === 'order' && <PayModeControl o={o} onAct={onAct} />}
-                {boxes(groups[tab])}
-                {tab === 'contact' && (
-                  <>
-                    <div className="lp-title" style={{ marginTop: 18 }}>Sales promise</div>
-                    {boxes([['Sales promise?', o.promises.length ? 'Yes' : 'No'], ['Promised by the ground team', o.promises.length ? o.promises.join(' · ') : '—']])}
-                    <div className="hs" style={{ marginTop: 4 }}>sales_promise_ · notes_to_add_sales_promise</div>
-                  </>
-                )}
+                <div className="summary-box"><b>✦ AI summary</b><p>{aiSummary(o, now)}</p></div>
+                <div className="lp-search"><input placeholder="Search details" value={find} onChange={(e) => setFind(e.target.value)} /></div>
+                <div className="lp-title">Payment</div>
+                <PayModeControl o={o} onAct={onAct} />
+                {kv(groups.payment)}
+                <div className="lp-title">Order</div>
+                {kv(groups.order)}
+                <div className="lp-title">Contact</div>
+                {kv(groups.contact)}
+                <div className="lp-title">Car</div>
+                {kv(groups.car)}
+                <div className="lp-title">Pricing</div>
+                {kv(groups.pricing)}
+                <DocWorkflow o={o} now={now} onAct={onAct} />
               </>
+            )}
+            {tab === 'states' && (
+              <div className="feed">
+                {stateLine.map(([st, how], i) => {
+                  const ci = stateLine.findIndex(([x]) => x === cur);
+                  const cls = st === cur ? 'act' : ci >= 0 && i < ci ? 'done' : '';
+                  return (
+                    <div key={st} className={'fe st-row ' + cls}>
+                      <span className={'ic ' + (cls === 'done' ? 'gate' : cls === 'act' ? 'stage' : 'rule')}>{cls === 'done' ? '✓' : cls === 'act' ? '◆' : '○'}</span>
+                      <div><div className="ft"><span className={'chip st-' + STATES[st]}>{st}</span></div><div className="fm">{how}{st === 'DEPOSIT PAID' ? ` · ${fmtAge(now - o.depositAt)} ago` : cls === 'act' ? ' · now' : ''}</div></div>
+                    </div>
+                  );
+                })}
+              </div>
             )}
             {tab === 'teams' && (
               <>
@@ -181,7 +207,6 @@ function LeftPanel({ o, now, persona, onDemo, onComms, onAct, collapsed, toggle 
                 })}
               </>
             )}
-            {tab === 'docs' && <DocWorkflow o={o} now={now} onAct={onAct} />}
             {tab === 'activity' && (
               <>
                 <div className="ftabs" style={{ marginTop: 0 }}>
@@ -289,6 +314,7 @@ function Payments({ o, t }: { o: Order; t: Task }) {
 }
 
 function CarGpt({ o, item, now, open, toggle }: { o: Order; item?: Item; now: number; open: boolean; toggle: () => void }) {
+  const [side, setSide] = useState<'gpt' | 'customer'>('gpt');
   const [q, setQ] = useState('');
   const [answers, setAnswers] = useState<{ q: string; a: string }[]>([]);
   const first = o.customer.name.split(' ')[0];
@@ -329,7 +355,8 @@ function CarGpt({ o, item, now, open, toggle }: { o: Order; item?: Item; now: nu
   if (!open) return <div className="ws-right shut"><button className="gpt-rail" onClick={toggle}><span className="gpt-chev">‹</span><span className="gpt-star">✦</span><span>CarGPT</span></button></div>;
   return (
     <div className="ws-right">
-      <div className="gpt-head">✦ CarGPT<button className="gpt-x" aria-label="Collapse CarGPT" onClick={toggle}>›</button></div>
+      <div className="gpt-head"><div className="gpt-tabs"><button className={side === 'gpt' ? 'on' : ''} onClick={() => setSide('gpt')}>✦ CarGPT</button><button className={side === 'customer' ? 'on' : ''} onClick={() => setSide('customer')}>Customer view</button></div><button className="gpt-x" aria-label="Collapse the panel" onClick={toggle}>›</button></div>
+      {side === 'customer' ? <div className="gpt-scroll"><CustomerView o={o} /></div> : <>
       <div className="gpt-scroll">
         <div className="gpt-card"><div className="gk">Say this</div><div className="gv">{say}</div></div>
         {context.length > 0 && <div className="gpt-card"><div className="gk">Use the context</div>{context.map((c) => <div key={c} className="gv">{c}</div>)}</div>}
@@ -340,12 +367,41 @@ function CarGpt({ o, item, now, open, toggle }: { o: Order; item?: Item; now: nu
         <input id="gpt-q" placeholder="Ask about this order…" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && ask()} />
         <button className="btn primary sm" onClick={ask}>Ask</button>
       </div>
+      </>}
     </div>
   );
 }
 
-export function OrderView({ o, persona, now, focus, onFocus, onField, onMove, onDemo, onBook, onBypass, onComms, onAct }: {
+// What the customer sees on their order page (cars24.com.au/orders): the same order, in their words.
+function CustomerView({ o }: { o: Order }) {
+  const p = task(o, 'payment');
+  const byo = o.paymentMode === 'BYO';
+  const pay = byo
+    ? ({ deposit: 'Checking your deposit', awaiting: `Waiting for ${o.lender || 'your lender'} to approve`, approved: `${o.lender || 'Your lender'} approved your loan`, remitShort: `${o.lender || 'Your lender'} paid; ${money(outstanding(o))} left for you to pay`, remit: 'Your lender has paid', settled: 'Paid in full', cancelled: 'Order cancelled' } as Record<string, string>)[p?.stage || 'deposit']
+    : outstanding(o) > 0 ? `${money(outstanding(o))} left to pay` : 'Paid in full';
+  const steps: [string, boolean, string][] = [
+    ['Deposit', !!p && p.stage !== 'deposit', p && p.stage !== 'deposit' ? 'Confirmed' : 'Checking your payment'],
+    [byo ? 'Your loan' : 'Payment', byo ? ['remit', 'settled'].includes(p?.stage || '') : isDone(p), pay],
+    ['Contract', isDone(task(o, 'contract')), isDone(task(o, 'contract')) ? 'Signed' : 'Sign on DocuSign'],
+    ['Getting your car ready', isDone(task(o, 'refurb')) && isDone(task(o, 'rwc')), task(o, 'rwc') ? 'Roadworthy, registration and detailing' : 'Starts once payment is confirmed'],
+    ['Handover', !!o.slot, o.slot ? `${o.slot.date} · ${o.slot.time}` : gatesClear(o) ? 'Pick a time' : 'Opens when your car is ready'],
+  ];
+  const at = steps.findIndex(([, d]) => !d);
+  return (
+    <div className="phone sm">
+      <div className="ph-bar">cars24.com.au/orders/{o.id}</div>
+      <div className="ph-body">
+        <div className="ph-car">{o.car.year} {o.car.make} {o.car.model}</div>
+        <div className="ph-sub">Order {o.id} · {o.paymentMode === 'BYO' ? 'Your own finance' : o.paymentMode === 'Cars24 finance' ? 'CARS24 finance' : 'Cash'}</div>
+        <div className="ph-prog">{steps.map(([k, d, n], j) => <div key={k} className={d ? 'done' : j === at ? 'act' : ''}><span /><div><b>{k}</b><small>{n}</small></div></div>)}</div>
+      </div>
+    </div>
+  );
+}
+
+export function OrderView({ o, persona, now, focus, onFocus, onField, onMove, onDemo, onBook, onBypass, onComms, onAct, step: forceStep, onStep, rightOpen = false }: {
   o: Order; persona: PersonaId; now: number; back: () => void; focus?: string; onFocus: (tid?: string) => void;
+  step?: RmStep; onStep?: (s: RmStep) => void; rightOpen?: boolean;
   onAct: (fn: (o: Order, at: number) => void) => void;
   onField: (tid: string, k: string, v: string | boolean) => void; onMove: (tid: string, to: string) => void; onDemo: (tid: string) => void;
   onBook: (d: string, t: string, ov: boolean) => void; onBypass: (on: boolean) => void; onComms: (text: string) => void;
@@ -362,10 +418,11 @@ export function OrderView({ o, persona, now, focus, onFocus, onField, onMove, on
   const setSel = (k: string) => { setSelRaw(k); onFocus(k === 'slot' ? undefined : k); };
   const [menu, setMenu] = useState(false);
   const [leftShut, setLeftShut] = useState(false);
-  const [gptOpen, setGptOpen] = useState(false);
+  const [gptOpen, setGptOpen] = useState(rightOpen);
   const [stepsOpen, setStepsOpen] = useState(true);
-  const [rmStep, setRmStep] = useState<RmStep>(() => firstOpenStep(o));
-  useEffect(() => { setRmStep(firstOpenStep(o)); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [o.id]);
+  const [rmStep, setRmStepRaw] = useState<RmStep>(() => forceStep || firstOpenStep(o));
+  useEffect(() => { setRmStepRaw(forceStep || firstOpenStep(o)); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [o.id, forceStep]);
+  const setRmStep = (k: RmStep) => { setRmStepRaw(k); onStep?.(k); };
   const rmItem: Item | undefined = rmStep === 'delivery' ? { kind: 'slot' } : rmStep === 'deposit' || rmStep === 'balance' ? { kind: 'task', t: task(o, 'payment')! } : rmStep === 'docs' ? { kind: 'task', t: task(o, 'contract')! } : undefined;
   const [date, setDate] = useState('Tue 17 Nov');
   const [time, setTime] = useState('11:00 am');
