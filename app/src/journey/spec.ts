@@ -38,6 +38,7 @@ const SHELL_TOP: Part[] = [
   { label: 'Lead pane', widget: 'LEFT_PANE', note: 'Status pill, AI summary, Call / WhatsApp / Email, Details, States and Activity. Payment mode lives here and can change at any step until handover', sel: '.ws-left' },
   { label: 'Phase bar', widget: 'STAGE_STEPPER', note: 'Verify, Deal, Contract, Funds, Handover; the steps of the phase you are in sit under it, a dashed one is a branch', sel: '.rm-phases' },
   { label: 'Step title', widget: '@cspl/badge', note: 'Step name and ID, then the order’s state as a badge', sel: '.rm-title' },
+  { label: 'Money strip', widget: '@cspl/fetched-info-card', note: 'Order total, paid, outstanding and handover gates, on every step: the four numbers the RM is asked about on every call', sel: '[data-part="money"]' },
 ];
 const SHELL_END: Part[] = [
   { label: 'LeadVerse will', widget: 'INFO_LIST', note: 'What the backend does on the main exit, in place of a HubSpot workflow', sel: '.fx' },
@@ -93,7 +94,7 @@ const DEFS: Def[] = [
     isNew: 'Four checks with the system’s suggestion, and a tracked customer ID request with a 24h SLA.',
     parts: [
       { label: 'Driver’s licence', widget: '@cspl/section-card + @cspl/fetched-info-card', note: 'Both sides, then what OCR read off the card', sel: '[data-part="licence"]' },
-      { label: 'Agent checks', widget: '@cspl/segment-tabs per row', note: 'Name, valid, readable, same state; the system’s answer beside each', sel: '[data-part="checks"]' },
+      { label: 'Agent checks', widget: '@cspl/segment-tabs per row', note: 'Name, valid, readable, same state; the system’s answer beside each, and Use the system’s answers to fill all four at once', sel: '[data-part="checks"]' },
       { label: 'Customer ID request', widget: 'TRACKER', note: 'Requested, awaiting the customer, received, verified', sel: '[data-part="crn"]' },
     ],
     fields: [
@@ -206,15 +207,17 @@ const DEFS: Def[] = [
   },
   {
     id: 'F1', key: 'balance', phase: 'F', name: 'Balance payment', screen: 'RM order › Balance payment', route: '/orders/:id/balance', owner: 'RM and FinOps',
-    desc: 'The customer pays the balance, in one transfer or several. Each entry needs a transaction and a reference ID; when the ledger covers the total, the ticket moves to Final remittance received and Finance GFD is stamped.',
+    desc: 'The RM sends a Stripe payment link for the outstanding amount, by SMS and email; the customer pays on their phone and the payment lands in the ledger on its own. Bank transfers still go in as a payment entry with a transaction and reference ID. When the ledger covers the total, the ticket moves to Final remittance received and Finance GFD is stamped.',
+    isNew: 'A Stripe payment link is the main way to collect the balance, so most payments need no manual entry and no reconciliation.',
     trigger: 'Contract & invoice confirmed',
     data: ['OMS: payments', 'Bank statement (FinOps)', 'HubSpot 01a: finance ticket'],
     entry: ['Contract signed, invoice current', 'Trade-in price agreed, if any'],
-    exits: [{ when: 'Fully paid: Finance GFD', to: 'H1', state: 'FINANCE GFD', main: true }, { when: 'Part paid: awaiting additional deposit', to: 'F1', state: 'OUTSTANDING DEPOSIT' }],
-    hubspot: 'TW01a moves the ticket on Final remittance received; DW01e stamps Finance GFD.',
+    exits: [{ when: 'Send the payment link; the customer pays it', to: 'H1', state: 'FINANCE GFD', main: true }, { when: 'Bank transfer: add a payment entry', to: 'F1' }, { when: 'Part paid: awaiting additional deposit', to: 'F1', state: 'OUTSTANDING DEPOSIT' }, { when: 'Resend the link', to: 'F1' }],
+    hubspot: 'The customer is sent bank details; FinOps matches the transfer and moves the ticket (TW01a); DW01e stamps Finance GFD.',
     rules: ['R-12', 'R-04'],
     parts: [
       { label: 'Payments', widget: '@cspl/section-card + @cspl/table + @cspl/link-button', note: 'The ledger, with Add payment entry while anything is outstanding', sel: '[data-part="payments"]' },
+      { label: 'Payment link', widget: '@cspl/section-card + @cspl/checkbox + @cspl/payment-details-card', note: 'SMS and email ticked, then the link amount; once sent, the link with a copy action and Waiting or Paid', sel: '[data-part="paylink"]' },
       { label: 'Price breakup', widget: '@cspl/table', note: 'DAP, charges, discount, VAS, trade-in, paid and outstanding', sel: '[data-part="price"]' },
     ],
     fields: [
@@ -222,6 +225,8 @@ const DEFS: Def[] = [
       { name: 'Payment source', type: 'Single select', req: 'Required', source: 'RM', rule: 'Bank transfer, card, Stripe, finance payout, trade-in' },
       { name: 'Transaction ID', type: 'Text', req: 'Required', source: 'Bank or Stripe', rule: '' },
       { name: 'Reference ID', type: 'Text', req: 'Required', source: 'Bank', rule: '' },
+      { name: 'Send by', type: 'Checkbox (SMS, email)', req: 'Required', source: 'RM', rule: 'At least one' },
+      { name: 'Payment link', type: 'URL', req: 'Read only', source: 'Stripe', rule: 'For the full outstanding amount; resent links replace the old one' },
     ],
     demo: { cash: 'LV-8LM4', byo: 'LV-8RT1' },
     byo: {
@@ -277,10 +282,10 @@ const DEFS: Def[] = [
     trigger: 'All gates clear (R-07): the Handover task is created for Delivery',
     data: ['OMS: isDeliveryBookingAllowed and hub capacity', 'Order: gates', 'B2C admin: delivery slots'],
     entry: ['Every gate clear, or the contract gate bypassed by the RM'],
-    exits: [{ when: 'Book & confirm slot', state: 'DELIVERY BOOKED', main: true }, { when: 'Bypass the contract gate', to: 'H2' }],
+    exits: [{ when: 'Book & confirm slot', state: 'DELIVERY BOOKED', main: true }, { when: 'Send the customer a slot picker', to: 'H2' }, { when: 'Bypass the contract gate', to: 'H2' }],
     hubspot: 'DW06a parks the deal at 7: Awaiting on blockers; the slot is booked in the B2C admin.',
     rules: ['R-07', 'R-08'],
-    isNew: 'Day and time as DLS selection slots: a full day and a taken time are disabled slots.',
+    isNew: 'Day and time as DLS selection slots: a full day and a taken time are disabled, the earliest open day is marked. The RM can also send the customer a slot picker on the same capacity.',
     parts: [
       { label: 'Delivery mode', widget: '@cspl/segment-tabs', note: 'Pick up or home delivery; shipping goes on the invoice', sel: '[data-part="mode"]' },
       { label: 'Handover gates', widget: '@cspl/table + @cspl/badge', note: 'Each gate, its owner and whether it is clear', sel: '[data-part="gates"]' },
@@ -322,6 +327,22 @@ export const FLOWS: Record<Track, { source: string[]; entry: string[]; exits: [s
 
 export interface Change { quote: string; who: string; title: string; before: string; after: string; body: [string, string][]; links: [Track, string][] }
 export const CHANGES: Change[] = [
+  {
+    quote: 'Collecting the balance without a manual entry for every payment', who: 'Design decision',
+    title: 'The balance is collected with a Stripe payment link',
+    before: 'Bank details sent → customer transfers → screenshot by email → FinOps matches the statement → ticket moved by hand',
+    after: 'F1 › Send payment link (SMS, email) → customer pays on their phone → Stripe records it → Final remittance received on its own',
+    body: [['Bank transfers stay.', 'Add payment entry is still there, now in the exits menu, with transaction and reference IDs required.'], ['Part payments.', 'If the customer pays less, the order shows Outstanding deposit and the RM sends a new link for what is left.']],
+    links: [['cash', 'F1']],
+  },
+  {
+    quote: 'The four numbers every customer call is about, always in view', who: 'Design decision',
+    title: 'A money strip on every step',
+    before: 'Outstanding amount found in the Pricing tab or the B2C admin, gates on the HubSpot deal',
+    after: 'Under every step title → order total · paid · outstanding · handover gates',
+    body: [['Why every step.', 'Discount, VAS, trade-in and contract all change the outstanding amount; the RM sees it move as they work.']],
+    links: [['cash', 'D1'], ['byo', 'F1']],
+  },
   {
     quote: 'The RM or the BM must be able to change the payment mode at any step, and the website must follow', who: 'FinOps call, second half (paraphrased)',
     title: 'Payment mode changes at any step, with a confirm popup',

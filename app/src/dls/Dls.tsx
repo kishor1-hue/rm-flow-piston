@@ -81,11 +81,14 @@ export function Dropdown({ label, value, options, onChange, disabled, hint }: {
 }
 
 // @cspl/text-input: label over the field
-export function TextInput({ label, value, onChange, placeholder, type = 'text', prefix }: { label: ReactNode; value: string; onChange: (v: string) => void; placeholder?: string; type?: string; prefix?: string }) {
+export function TextInput({ label, value, onChange, placeholder, type = 'text', prefix, error, helper, required, onEnter, max }: {
+  label: ReactNode; value: string; onChange: (v: string) => void; placeholder?: string; type?: string; prefix?: string; error?: string; helper?: ReactNode; required?: boolean; onEnter?: () => void; max?: string;
+}) {
   return (
-    <div className="tu-ti">
-      <label>{label}</label>
-      <div className={prefix ? 'tu-ti-pre' : ''}>{prefix && <span>{prefix}</span>}<input type={type} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} /></div>
+    <div className={'tu-ti' + (error ? ' err' : '')}>
+      <label>{label}{required && <i className="tu-req">*</i>}</label>
+      <div className={prefix ? 'tu-ti-pre' : ''}>{prefix && <span>{prefix}</span>}<input type={type} value={value} max={max} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') onEnter?.(); }} /></div>
+      {(error || helper) && <small className={error ? 'tu-err' : 'tu-hint'}>{error || helper}</small>}
     </div>
   );
 }
@@ -163,6 +166,71 @@ export function SelectionSlots({ title, slots, value, onChange, ariaLabel = 'Opt
           );
         })}
       </section>
+    </div>
+  );
+}
+
+// @cspl/text-area: label, the field, then a helper or error line and a counter
+export function TextArea({ label, value, onChange, placeholder, error, required, maxLength = 300 }: { label: ReactNode; value: string; onChange: (v: string) => void; placeholder?: string; error?: string; required?: boolean; maxLength?: number }) {
+  return (
+    <div className={'tu-ti tu-ta' + (error ? ' err' : '')}>
+      <label>{label}{required && <i className="tu-req">*</i>}</label>
+      <textarea value={value} placeholder={placeholder} maxLength={maxLength} onChange={(e) => onChange(e.target.value)} />
+      <div className="ft"><small className={error ? 'tu-err' : 'tu-hint'}>{error || ''}</small><small className="tu-hint">{value.length}/{maxLength}</small></div>
+    </div>
+  );
+}
+
+// @cspl/stepper, default variant: a marker per step (check once completed), a line between, label and description under
+export type StepState = 'default' | 'active' | 'completed';
+export function Stepper({ steps }: { steps: { label: string; description?: string; status?: StepState; icon?: string; skip?: boolean }[] }) {
+  return (
+    <ol className="tu-stepper">
+      {steps.map((st, i) => (
+        <li key={st.label} className={'st ' + (st.status || 'default') + (st.skip ? ' skip' : '')} aria-current={st.status === 'active' ? 'step' : undefined}>
+          <span className="trk"><span className="mk"><Icon name={st.status === 'completed' ? 'check-outline' : st.icon || 'edit-outline'} size="lg" /></span>{i < steps.length - 1 && <span className="cn" />}</span>
+          <span className="tx"><b>{st.label}</b>{st.description && <small>{st.description}</small>}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+// @cspl/checkbox, size md, with its label, a sub line and a value on the right
+export function Checkbox({ label, sub, value, checked, onChange, disabled }: { label: ReactNode; sub?: ReactNode; value?: ReactNode; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  return (
+    <label className={'tu-cb' + (checked ? ' on' : '') + (disabled ? ' off' : '')}>
+      <input type="checkbox" hidden checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+      <span className="box"><Icon name="check-outline" size="sm" /></span>
+      <span className="lb">{label}{sub && <small>{sub}</small>}</span>{value != null && <span className="vl">{value}</span>}
+    </label>
+  );
+}
+
+// @cspl/payment-details-card: breakup rows, a dashed separator, a highlighted total; a row can carry a value action (copy)
+export type PayItem = 'sep' | { label: ReactNode; value: ReactNode; highlight?: boolean; copy?: string };
+export function PaymentDetails({ items, shadow = false }: { items: PayItem[]; shadow?: boolean }) {
+  return (
+    <div className={'tu-pay' + (shadow ? ' shadow' : '')}>
+      {items.map((x, i) => x === 'sep' ? <div key={i} className="sep" /> : (
+        <div key={i} className={'it' + (x.highlight ? ' hl' : '')}><span>{x.label}</span>
+          <span className="v">{x.copy && <button type="button" className="va" aria-label="Copy" onClick={() => navigator.clipboard?.writeText(x.copy!).catch(() => {})}><Icon name="copy" size="sm" /></button>}{x.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// @cspl/modal: a neutral-950 backdrop at 60%, a white rounded-2xl panel; header, body, footer actions
+export function Modal({ title, subtitle, onClose, children, footer, wide }: { title: ReactNode; subtitle?: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
+  return (
+    <div className="dls tu-modal" role="dialog" aria-label={typeof title === 'string' ? title : 'Dialog'}>
+      <div className="bd" onClick={onClose} />
+      <div className={'pn' + (wide ? ' wide' : '')}>
+        <div className="mh"><div><b>{title}</b>{subtitle && <small>{subtitle}</small>}</div><button type="button" className="x" aria-label="Close" onClick={onClose}><Icon name="close-line" /></button></div>
+        <div className="mb">{children}</div>
+        {footer && <div className="mf">{footer}</div>}
+      </div>
     </div>
   );
 }

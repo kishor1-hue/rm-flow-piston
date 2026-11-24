@@ -30,6 +30,8 @@ export function Journey({ openApp }: { openApp: (orderId: string, step: RmStep) 
   const [orders, setOrders] = useState<Order[]>(() => {
     const all = buildSeed(Date.now());
     (['cash', 'byo'] as Track[]).forEach((t) => { const o = all.find((x) => x.id === stepById(t, 'D4').demo); if (o && o.tradeInOpted !== 'Yes') setTradeInOpted(o, 'Yes', Date.now()); });
+    // F1's cash demo has its contract and invoice checked (C1), so the balance can be collected.
+    const f1 = all.find((x) => x.id === stepById('cash', 'F1').demo); if (f1) f1.rmDone.final = f1.rmDone.final || Date.now();
     return all;
   });
   const [tab, setTab] = useState<'spec' | 'anatomy'>('spec');

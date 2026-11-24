@@ -119,6 +119,9 @@ export interface Order {
   docs: Record<DocKey, { v: number; at: number }>;
   changedAt: number; // last change that alters the contract / invoice amounts
   slot?: { date: string; time: string; by: string; override?: boolean };
+  // A Stripe payment link for the outstanding amount, and a self-serve slot picker sent to the customer
+  payLink?: { amount: number; at: number; url: string; paidAt?: number };
+  slotLink?: { at: number; url: string };
   bypassContract: boolean;
   tasks: Task[];
   activity: Activity[];
@@ -466,6 +469,24 @@ export function recordPayment(o: Order, amount: number, ref: string, by: Persona
   const left = outstanding(o);
   log(o, { at, who: 'Workflow', kind: 'rule', rule: 'R-12', text: left === 0 ? 'Fully paid — Finance ticket moved to Final remittance received' : `${money(left)} still outstanding — Finance ticket at Awaiting additional deposit` });
   move(o, p, left === 0 ? 'final' : 'short', 'system', at);
+}
+
+// The RM sends a Stripe link for what is outstanding; Stripe's webhook records the payment like any other entry.
+export function sendPayLink(o: Order, at: number) {
+  const amount = outstanding(o);
+  o.payLink = { amount, at, url: `pay.cars24.com.au/${o.id.toLowerCase()}/${(at % 100000).toString(36)}` };
+  log(o, { at, who: who('rm'), kind: 'comms', persona: 'rm', text: `Payment link for ${money(amount)} sent by SMS and email` });
+}
+export function payByLink(o: Order, at: number) {
+  if (!o.payLink) return;
+  const amount = Math.min(o.payLink.amount, outstanding(o));
+  o.payLink.paidAt = at;
+  recordPayment(o, amount, 'pi_' + o.id.slice(3).toLowerCase() + 'lnk', 'rm', at, { method: 'Stripe', txn: 'ch_' + (at % 1000000).toString(36), receivedBy: 'Customer (self-serve)' });
+}
+// The customer picks their own handover slot from the same capacity the RM sees.
+export function sendSlotLink(o: Order, at: number) {
+  o.slotLink = { at, url: `cars24.com.au/handover/${o.id.toLowerCase()}` };
+  log(o, { at, who: who('rm'), kind: 'comms', persona: 'rm', text: 'Slot picker sent to the customer by SMS and email' });
 }
 
 export const DISCOUNT_LIMIT = 500; // assumed approval threshold; the B2C tool shows an "Approval required" modal

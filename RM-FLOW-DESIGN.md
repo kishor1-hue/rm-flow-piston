@@ -470,6 +470,35 @@ has CarGPT and a Customer view (the order page the customer sees).
 mode), `FetchedInfoCard`, `InformationMessage`, `Button`, `LinkButton`, and `SelectionSlots` for the handover day and time,
 where a fully booked day and a taken time are disabled slots, and every slot stays disabled while a gate is open.
 
+
+### 11.1 DLS pass and flow improvements (24 Nov 2026)
+
+Every block inside the steps is now a Turbo UI component, not a restyled legacy one:
+
+| Where | Before | Now (`@cspl/*`) |
+| --- | --- | --- |
+| Finance and contract tickets | read-only boxes and a native select | `fetched-info-card` (ticket, pipeline, time in status) + `dropdown`, with the moves still open as the hint |
+| D1 Discount | hand-made calculator lists and form | two `payment-details-card` breakups, `text-input` with a $ prefix, `segment-tabs` (Flat / %), `dropdown`, and an outstanding now → after card |
+| D2 VAS | expandable legacy table | `table` with type as sub-text, a status badge, the install task and Remove as a `link-button`; Add VAS is a `modal` |
+| D4 Trade-in | legacy form | `fetched-info-card` for the Trade-In team's fields; Agrees / Does not agree as `segment-tabs`, then `dropdown`, `text-input`, `text-area` |
+| C1 checks | coloured rows | `table` with a status badge and Regenerate as a `link-button` |
+| Customer ID request | hand-made tracker | `stepper` (Requested, Awaiting customer, Received, Verified) + `text-input` with validation |
+| Add payment entry | legacy modal | `modal` with `text-input`, `dropdown`, `text-area` and inline errors |
+
+**Flow changes, as a PM:**
+
+1. **Money strip on every step.** Order total, paid, outstanding and handover gates sit under each step's title. Discount,
+   VAS, trade-in and the contract all move the outstanding amount, and it is the first thing a customer asks on a call.
+2. **The balance is collected with a Stripe payment link (F1, Cash).** SMS and email are ticked by default; the link is for
+   the full outstanding amount. The customer pays on their phone, Stripe records the payment, and the ticket moves on its own.
+   Bank transfers still go in through Add payment entry, now in the exits menu. The Customer view shows "Pay $X with the link".
+3. **The customer can pick their own handover slot (H2).** "Send the customer a slot picker" shares the same capacity; whoever
+   books first takes the slot. The earliest open day is marked.
+4. **V2: Use the system's answers** fills all four licence checks at once; the RM only changes the ones they disagree with.
+
+The journey spec carries all of it: the money strip is a shell part on every step, F1 and H2 have the new exits, parts and
+fields, and What changed has two more entries (both marked as design decisions).
+
 ## 12. Run it
 
 ```bash

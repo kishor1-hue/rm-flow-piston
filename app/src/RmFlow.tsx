@@ -1,16 +1,16 @@
 // RM cash journey: one guided action flow per order, from deposit to delivery.
 // Each step is an action; the "LeadVerse will" list is what the backend does in place of HubSpot workflows.
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { JOURNEYS, PERSONAS, TI_FIELDS, type TransitionDef } from './model';
 import {
   acceptTradeIn, applyDiscount, approveDiscount, disputeTradeIn, TI_CONFLICT_REASONS, setTradeInOpted, availableNext, canMove, DISCOUNT_LIMIT, fmtAge, gatesClear, gateStatus,
-  addVas, byoVerifyDeposit, financeGfd, CRN_NAME, dap, DOC_LABEL, docOutdated, regenerateDoc, requestCrn, verifyDl, dlSuggest, receiveCrn, remindCrn, requestReupload, setDlCheck, type DlCheck, type DocKey, govtCharges, isDone, missingFields, money, removeVas, VAS_CATALOG, vasTotal, type PlanType, orderTotal, outstanding, recordPayment, type PaymentEntry, isRegistered, setDeliveryMode, skipStep, stageDef, task, type Order, type Task,
+  addVas, byoVerifyDeposit, payByLink, sendPayLink, sendSlotLink, financeGfd, CRN_NAME, dap, DOC_LABEL, docOutdated, regenerateDoc, requestCrn, verifyDl, dlSuggest, receiveCrn, remindCrn, requestReupload, setDlCheck, type DlCheck, type DocKey, govtCharges, isDone, missingFields, money, removeVas, VAS_CATALOG, vasTotal, type PlanType, orderTotal, outstanding, recordPayment, type PaymentEntry, isRegistered, setDeliveryMode, skipStep, stageDef, task, type Order, type Task,
 } from './engine';
 import { PrepStatus } from './Visibility';
 import { ByoLenderStep, byoNext, ByoStatusCard, ByoStatusField, type ByoEvent } from './Byo';
 import { Field } from './TaskCard';
 import { PHASES, STATES, stepByKey, type Track } from './journey/spec';
-import { Button, DataTable, Dls, FetchedInfo, InfoMessage, LinkButton, SectionCard, SegmentTabs, SelectionSlots, type Row } from './dls/Dls';
+import { Button, Checkbox, DataTable, Dls, Dropdown, FetchedInfo, InfoMessage, LinkButton, Modal, PaymentDetails, SectionCard, SegmentTabs, SelectionSlots, Stepper, TextArea, TextInput, type Row } from './dls/Dls';
 import { dlPng, proofPng } from './proof';
 import { payload, SchemaForm, validate, type FormValues, type SchemaPage } from './SchemaForm';
 import spForm from './forms/sales-promise-checklist.json';
@@ -80,33 +80,24 @@ function Fx({ items }: { items: string[] }) {
   );
 }
 
-// Ticket status dropdown — same stages as the HubSpot pipeline; only moves the current stage allows.
+// Ticket status: the HubSpot pipeline's own values as a DLS dropdown; only the moves the current status allows can be picked.
 function TicketStatus({ o, t, title, onMove }: { o: Order; t: Task; title: string; onMove: (to: string) => void }) {
   const def = JOURNEYS[t.journey];
   const nexts = availableNext(o, t);
   const reason = (n?: TransitionDef) => {
-    if (!n) return 'not reachable from this stage';
+    if (!n) return 'not reachable from this status';
     const miss = missingFields(t, n.requires);
     if (miss.length) return 'fill ' + miss.map((k) => (stageDef(t).fields || []).find((f) => f.key === k)?.label || k).join(', ');
     return canMove(o, t, n.to).reason || '';
   };
+  const open = def.stages.filter((s) => s.key !== t.stage && !reason(nexts.find((x) => x.to === s.key)));
   return (
-    <div className="tform">
-      <label className="tf"><span>Ticket</span><div className="tf-ro">{title}</div></label>
-      <label className="tf"><span>Pipeline</span><div className="tf-ro">{def.hsPipeline}<small>in stage {fmtAge(Date.now() - t.enteredAt)}</small></div></label>
-      <label className="tf wide">
-        <span>Ticket status</span>
-        <div className="tf-sel">
-          <select value={t.stage} onChange={(e) => { const n = nexts.find((x) => x.to === e.target.value); if (n && !reason(n)) onMove(n.to); }}>
-            {def.stages.map((s) => {
-              const n = nexts.find((x) => x.to === s.key);
-              const r = s.key === t.stage ? '' : reason(n);
-              return <option key={s.key} value={s.key} disabled={!!r}>{s.hs}{r && s.key !== t.stage ? ` — ${r}` : ''}</option>;
-            })}
-          </select>
-        </div>
-      </label>
-    </div>
+    <>
+      <FetchedInfo cols={3} items={[['Ticket', title], ['Pipeline', def.hsPipeline], ['In this status', fmtAge(Date.now() - t.enteredAt)]]} />
+      <Dropdown label="Ticket status" value={t.stage} onChange={(v) => { const n = nexts.find((x) => x.to === v); if (n && !reason(n)) onMove(n.to); }}
+        hint={open.length ? `Can move to: ${open.map((s) => s.hs).join(' · ')}` : 'No move open from this status yet'}
+        options={def.stages.map((s) => { const r = s.key === t.stage ? '' : reason(nexts.find((x) => x.to === s.key)); return { value: s.key, label: s.hs + (r ? ` — ${r}` : ''), disabled: !!r }; })} />
+    </>
   );
 }
 
@@ -195,32 +186,12 @@ function AddVasModal({ o, onClose, onAdd }: { o: Order; onClose: () => void; onA
   const plans = type ? VAS_CATALOG[type] : [];
   const pick = plans.find((p) => p.name === plan);
   return (
-    <div className="modal-bg" onClick={onClose}>
-      <div className="modal" role="dialog" aria-label="Add VAS" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-h"><div><b>Add VAS</b><small>Complete the form to continue.</small></div><button className="lb-x sm" aria-label="Close" onClick={onClose}>×</button></div>
-        <div className="modal-b">
-          <div className="modal-card">
-            <h2>Add VAS</h2>
-            <p>Select a plan type and VAS plan for this order.</p>
-            <label className="tf"><span>Plan Type <i className="req">*</i></span>
-              <div className="tf-sel"><select value={type} onChange={(e) => { setType(e.target.value as keyof typeof VAS_CATALOG); setPlan(''); }}>
-                <option value="">Select plan type</option>
-                {Object.keys(VAS_CATALOG).map((k) => <option key={k}>{k}</option>)}
-              </select></div>
-            </label>
-            <label className="tf"><span>VAS Plan <i className="req">*</i></span>
-              <div className="tf-sel"><select value={plan} disabled={!type} onChange={(e) => setPlan(e.target.value)}>
-                <option value="">Select VAS plan</option>
-                {plans.map((p) => <option key={p.name} value={p.name} disabled={have.has(p.name)}>{p.name}{have.has(p.name) ? ' (already added)' : ''}</option>)}
-              </select></div>
-            </label>
-            {pick && <div className="dc-msg"><b>{money(pick.price)}</b> · {pick.details}</div>}
-            <span className="sp" />
-            <button className="btn primary wide" disabled={!pick} onClick={() => pick && type && onAdd(type, pick.name)}>Add VAS item</button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <Modal title="Add VAS" subtitle="Pick a plan type, then the plan. DAP and the invoice update as soon as it is added." onClose={onClose}
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button disabled={!pick} onClick={() => pick && type && onAdd(type, pick.name)}>Add VAS item</Button></>}>
+      <Dropdown label={<>Plan type<i className="tu-req">*</i></>} value={type} onChange={(v) => { setType(v as keyof typeof VAS_CATALOG); setPlan(''); }} options={[{ value: '', label: 'Select plan type', disabled: true }, ...Object.keys(VAS_CATALOG).map((k) => ({ value: k, label: k }))]} />
+      <Dropdown label={<>VAS plan<i className="tu-req">*</i></>} value={plan} disabled={!type} onChange={setPlan} options={[{ value: '', label: 'Select VAS plan', disabled: true }, ...plans.map((p) => ({ value: p.name, label: p.name + (have.has(p.name) ? ' (already added)' : ''), disabled: have.has(p.name) }))]} />
+      {pick && <PaymentDetails items={[{ label: pick.name, value: money(pick.price), highlight: true }, { label: 'Details', value: <span className="wrap-r">{pick.details}</span> }]} />}
+    </Modal>
   );
 }
 
@@ -229,7 +200,6 @@ const RECEIVED_BY = ['Finance team', 'RM', 'Customer (self-serve)'];
 function AddPaymentModal({ due, onClose, onAdd }: { due: number; onClose: () => void; onAdd: (amount: number, ref: string, e: PaymentEntry) => void }) {
   const [f, setF] = useState({ amount: due ? String(due) : '', source: '', txn: '', ref: '', date: new Date().toISOString().slice(0, 10), receivedBy: '', remarks: '' });
   const [tried, setTried] = useState(false);
-  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const errs: Partial<Record<keyof typeof f, string>> = {};
   if (!(Number(f.amount) > 0)) errs.amount = 'Enter the amount received';
   else if (Number(f.amount) > due) errs.amount = `More than the outstanding ${money(due)}`;
@@ -237,52 +207,24 @@ function AddPaymentModal({ due, onClose, onAdd }: { due: number; onClose: () => 
   if (!f.txn.trim()) errs.txn = 'Enter the transaction ID';
   if (!f.ref.trim()) errs.ref = 'Enter the reference ID';
   if (!f.date) errs.date = 'Pick the payment date';
-  const err = (k: keyof typeof f) => tried && errs[k] ? <div className="dc-err">{errs[k]}</div> : null;
   const submit = () => {
     setTried(true);
     if (Object.keys(errs).length) return;
     onAdd(Number(f.amount), f.ref.trim(), { method: f.source, txn: f.txn.trim(), paidAt: f.date === new Date().toISOString().slice(0, 10) ? undefined : new Date(f.date + 'T12:00:00').getTime(), receivedBy: f.receivedBy || undefined, remarks: f.remarks.trim() || undefined });
   };
   return (
-    <div className="modal-bg" onClick={onClose}>
-      <div className="modal" role="dialog" aria-label="Add payment entry" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-h"><div><b>Add payment entry</b><small>Complete the form to continue.</small></div><button className="lb-x sm" aria-label="Close" onClick={onClose}>×</button></div>
-        <div className="modal-b">
-          <div className="modal-card">
-            <label className="tf"><span>Amount (AUD) <i className="req">*</i></span>
-              <input className={'tf-in' + (tried && errs.amount ? ' bad' : '')} type="number" min="0" placeholder="e.g. 5000" value={f.amount} onChange={set('amount')} />{err('amount')}
-            </label>
-            <label className="tf"><span>Payment Source <i className="req">*</i></span>
-              <div className="tf-sel"><select className={tried && errs.source ? 'bad' : ''} value={f.source} onChange={set('source')}>
-                <option value="">Select payment source</option>
-                {PAYMENT_SOURCES.map((x) => <option key={x}>{x}</option>)}
-              </select></div>{err('source')}
-            </label>
-            <label className="tf"><span>Transaction ID <i className="req">*</i></span>
-              <input className={'tf-in' + (tried && errs.txn ? ' bad' : '')} placeholder="e.g. TXN-12345" value={f.txn} onChange={set('txn')} />{err('txn')}
-            </label>
-            <label className="tf"><span>Reference ID <i className="req">*</i></span>
-              <input className={'tf-in' + (tried && errs.ref ? ' bad' : '')} placeholder="e.g. PO-67890" value={f.ref} onChange={set('ref')} />{err('ref')}
-            </label>
-            <label className="tf"><span>Payment date <i className="req">*</i></span>
-              <input className={'tf-in' + (tried && errs.date ? ' bad' : '')} type="date" value={f.date} max={new Date().toISOString().slice(0, 10)} onChange={set('date')} />
-              <small className="tf-help">Use ISO format expected by API</small>{err('date')}
-            </label>
-            <label className="tf"><span>Received by</span>
-              <div className="tf-sel"><select value={f.receivedBy} onChange={set('receivedBy')}>
-                <option value="">Select</option>
-                {RECEIVED_BY.map((x) => <option key={x}>{x}</option>)}
-              </select></div>
-              <small className="tf-help">Not sent to the current API</small>
-            </label>
-            <label className="tf"><span>Remarks</span>
-              <textarea className="tf-in sf-ta" placeholder="Internal note" value={f.remarks} onChange={set('remarks')} />
-            </label>
-            <button className="btn primary wide" onClick={submit}>Add Payment entry</button>
-          </div>
-        </div>
+    <Modal wide title="Add payment entry" subtitle={`Outstanding ${money(due)}. Bank transfers and payouts the customer made outside Stripe.`} onClose={onClose}
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={submit}>Add payment entry</Button></>}>
+      <div className="tu-grid2">
+        <TextInput label="Amount" required prefix="$" type="number" placeholder="e.g. 5000" value={f.amount} onChange={(v) => setF({ ...f, amount: v })} error={tried ? errs.amount : undefined} />
+        <Dropdown label={<>Payment source<i className="tu-req">*</i></>} value={f.source} onChange={(v) => setF({ ...f, source: v })} hint={tried && errs.source ? <span className="tu-err">{errs.source}</span> : undefined} options={[{ value: '', label: 'Select payment source', disabled: true }, ...PAYMENT_SOURCES.map((x) => ({ value: x, label: x }))]} />
+        <TextInput label="Transaction ID" required placeholder="e.g. TXN-12345" value={f.txn} onChange={(v) => setF({ ...f, txn: v })} error={tried ? errs.txn : undefined} />
+        <TextInput label="Reference ID" required placeholder="e.g. PO-67890" value={f.ref} onChange={(v) => setF({ ...f, ref: v })} error={tried ? errs.ref : undefined} />
+        <TextInput label="Payment date" required type="date" max={new Date().toISOString().slice(0, 10)} value={f.date} onChange={(v) => setF({ ...f, date: v })} error={tried ? errs.date : undefined} />
+        <Dropdown label="Received by" value={f.receivedBy} onChange={(v) => setF({ ...f, receivedBy: v })} options={[{ value: '', label: 'Select' }, ...RECEIVED_BY.map((x) => ({ value: x, label: x }))]} />
+        <div className="full"><TextArea label="Remarks" placeholder="Internal note" value={f.remarks} onChange={(v) => setF({ ...f, remarks: v })} /></div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -325,9 +267,9 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   const [payModal, setPayModal] = useState(false);
   const [byoOpen, setByoOpen] = useState<ByoEvent | null>(null);
   const [showSpec, setShowSpec] = useState(false);
+  const [chan, setChan] = useState({ sms: true, email: true });
   useEffect(() => { setByoOpen(null); }, [o.id]);
   const isByo = o.paymentMode === 'BYO' && !!o.byo;
-  const [vasRow, setVasRow] = useState('');
   const [crn, setCrn] = useState('');
   const [dlZoom, setDlZoom] = useState<'' | 'front' | 'back'>('');
   useEffect(() => { setCrn(''); }, [o.id]);
@@ -432,25 +374,28 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
   const crnOk = /^\d{6,10}$/.test(crn.trim());
   const crnStage = o.dl.status === 'ID requested' ? 1 : o.dl.status === 'ID received' ? 2 : o.dl.status === 'Verified' ? 3 : 0;
   const crnTracker = (editable: boolean) => (
-    <div className="crn">
-      <div className="crn-steps">{['Requested', 'Awaiting customer', 'Received', 'Verified'].map((st, k) => { const done = (k < crnStage && o.dl.status !== 'Uploaded') || o.dl.status === 'Verified'; return <div key={st} className={done ? 'done' : k === crnStage && o.dl.status !== 'Uploaded' ? 'on' : ''}><i>{done ? '✓' : k + 1}</i>{st}</div>; })}</div>
+    <>
+      <Stepper steps={['Requested', 'Awaiting customer', 'Received', 'Verified'].map((label, k) => {
+        const done = o.dl.status === 'Verified' || (k < crnStage && o.dl.status !== 'Uploaded');
+        return { label, status: done ? 'completed' : k === crnStage && o.dl.status !== 'Uploaded' ? 'active' : 'default', icon: ['send-line', 'clock-timer-outline', 'receipt-check-outline', 'shield-check-line'][k] };
+      })} />
       {o.dl.status === 'Uploaded' || o.dl.status === 'Re-upload requested' ? (
-        <div className="cs">{o.dl.state} licence, registering in {o.customer.state}: the customer needs a {crnName} from the {o.customer.state} road authority. Raise the request and LeadVerse sends them a portal link with the steps.</div>
+        <InfoMessage>{o.dl.state} licence, registering in {o.customer.state}: the customer needs a {crnName} from the {o.customer.state} road authority. Raise the request and LeadVerse sends them a portal link with the steps.</InfoMessage>
       ) : o.dl.status === 'ID requested' ? (
         <>
-          <div className="cs">Requested {fmtAge(Date.now() - (o.dl.requestedAt || Date.now()))} ago · {o.dl.reminders || 0} reminder{o.dl.reminders === 1 ? '' : 's'} sent · SLA 24h. {editable ? 'The customer can submit it on the portal, or enter it here if they share it on a call.' : 'Collected in Contract & invoice, before the final payment.'}</div>
+          <InfoMessage tone="warning" icon="clock-timer-outline">Requested {fmtAge(Date.now() - (o.dl.requestedAt || Date.now()))} ago · {o.dl.reminders || 0} reminder{o.dl.reminders === 1 ? '' : 's'} sent · SLA 24h. {editable ? 'The customer can submit it on the portal, or enter it here if they share it on a call.' : 'Collected in C1, before the final payment.'}</InfoMessage>
           {editable && (
-            <div className="crn-in">
-              <label className="tf"><span>{crnName} <i className="req">*</i></span><input className="tf-in" inputMode="numeric" value={crn} placeholder="e.g. 123456789" onChange={(e) => setCrn(e.target.value)} /></label>
-              <button className="btn primary" disabled={!crnOk} title={crnOk ? '' : 'Enter 6–10 digits'} onClick={() => act((x, at) => { receiveCrn(x, crn.trim(), 'Agent (phone)', at); verifyDl(x, at); })}>Save &amp; verify</button>
-              <button className="btn" onClick={() => act((x, at) => remindCrn(x, at))}>Send reminder</button>
+            <div className="rm-inline">
+              <TextInput label={crnName} required value={crn} placeholder="e.g. 123456789" error={crn && !crnOk ? 'Enter 6–10 digits' : undefined} onChange={setCrn} />
+              <Button disabled={!crnOk} onClick={() => act((x, at) => { receiveCrn(x, crn.trim(), 'Agent (phone)', at); verifyDl(x, at); })}>Save &amp; verify</Button>
+              <Button variant="secondary" onClick={() => act((x, at) => remindCrn(x, at))}>Send reminder</Button>
             </div>
           )}
         </>
       ) : (
-        <div className="cs">Received: <b>{o.dl.crn}</b> via {o.dl.crnVia}{o.dl.status === 'Verified' ? ' · passed to the Registration team' : ''}.</div>
+        <InfoMessage tone="success" icon="circle-check-filled">Received: {o.dl.crn} via {o.dl.crnVia}{o.dl.status === 'Verified' ? ' · passed to the Registration team' : ''}.</InfoMessage>
       )}
-    </div>
+    </>
   );
 
   if (step === 'docs') {
@@ -494,7 +439,7 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
         </SectionCard>
         {dlZoom && <div className="lightbox" onClick={() => setDlZoom('')}><img src={dlPng(o, dlZoom)} alt={`Driver's licence ${dlZoom}`} /><button className="lb-x" aria-label="Close">×</button></div>}
 
-        <SectionCard part="checks" title="Agent checks" subtitle="Four checks, each with the system's suggestion" badge={answered ? { label: reupload.length || stateNo ? 'Action needed' : 'All passed', variant: reupload.length ? 'error' : stateNo ? 'warning' : 'success' } : { label: `${QS.filter(([k]) => ans[k]).length} of 4 answered`, variant: 'neutral' }}>
+        <SectionCard part="checks" title="Agent checks" subtitle="Four checks, each with the system's suggestion" right={open && !answered ? <LinkButton icon="sparkle-filled" onClick={() => act((x) => QS.forEach(([k]) => setDlCheck(x, k, sug[k])))}>Use the system's answers</LinkButton> : undefined} badge={answered ? { label: reupload.length || stateNo ? 'Action needed' : 'All passed', variant: reupload.length ? 'error' : stateNo ? 'warning' : 'success' } : { label: `${QS.filter(([k]) => ans[k]).length} of 4 answered`, variant: 'neutral' }}>
           <div className="rm-rows">
             {QS.map(([k, q, hint]) => (
               <div key={k} className={'rm-row' + (ans[k] === 'No' ? ' no' : '')}>
@@ -535,12 +480,11 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     const n0 = availableNext(o, c)[0];
     fx = !signed ? (n0?.to === 'signed' ? ['Stamp contract signed date (HubSpot TW02a)', 'Contract gate ✓ for delivery', 'Sync to OMS so the customer app can open the slot'] : n0?.to === 'sent' ? ['Send the DocuSign envelope with the tax invoice', 'Deal contract status → Contract not signed (TW02b)', 'Nudge the customer after 48h'] : [])
       : idPending ? [`Save the ${crnName} on the order and mark the licence verified`, 'Pass it to the Registration team so the transfer can be lodged', 'Registration is on the delivery critical path'] : stale.length ? ['Call the regenerate API for each outdated document', 'A regenerated contract goes out as a new DocuSign envelope'] : !o.rmDone.final ? ['Contract & invoice gate ✓ — the final payment can be taken'] : [];
-    const check = (ok: boolean, label: string, note: string, k?: DocKey) => (
-      <div className={'chk' + (ok ? ' ok' : ' bad')}>
-        <i>{ok ? '✓' : '!'}</i><div><b>{label}</b><small>{note}</small></div>
-        {k && !ok && <button className="btn sm" onClick={() => act((x, at) => regenerateDoc(x, k, at))}>Regenerate</button>}
-      </div>
-    );
+    const checkRows: Row[] = [];
+    const check = (ok: boolean, label: string, note: string, k?: DocKey) => {
+      checkRows.push({ c: label, n: <span className="wrap">{note}</span>, st: { label: ok ? 'Done' : 'To fix', variant: ok ? 'success' : 'warning' }, a: k && !ok ? <LinkButton icon="edit-outline" onClick={() => act((x, at) => regenerateDoc(x, k, at))}>Regenerate</LinkButton> : '' });
+      return null;
+    };
     body = (
       <>
         <SectionCard part="ticket" title="Customer documents ticket" subtitle="HubSpot 02 Sales Contracts · DocuSign" badge={{ label: stageDef(c).label, variant: signed ? 'success' : 'warning' }}>
@@ -548,13 +492,12 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
           {!signed && <StageFields t={c} onField={(k, v) => onField(c.id, k, v)} />}
         </SectionCard>
         <SectionCard part="checks" title="Before the final payment" subtitle="The contract and the invoice must match the order as it is now" badge={o.rmDone.final ? { label: 'Checked', variant: 'success' } : undefined}>
-          <div className="chks">
-            {check(signed, 'Contract signed', signed ? 'DocuSign envelope completed' : ['sent', 'form4', 'review'].includes(c.stage) ? 'Sent · waiting for the customer to sign' : 'Not sent yet')}
+          {check(signed, 'Contract signed', signed ? 'DocuSign envelope completed' : ['sent', 'form4', 'review'].includes(c.stage) ? 'Sent · waiting for the customer to sign' : 'Not sent yet')}
             {check(!docOutdated(o, 'contract'), `Contract up to date · v${o.docs.contract.v}`, docOutdated(o, 'contract') ? 'Order changed after it was generated (discount, VAS or trade-in)' : `Generated ${fmtAge(Date.now() - o.docs.contract.at)} ago`, 'contract')}
             {check(!docOutdated(o, 'invoice'), `Tax invoice correct · v${o.docs.invoice.v}`, docOutdated(o, 'invoice') ? `Invoice total is out of date; order total is now ${money(orderTotal(o))}` : `Total ${money(orderTotal(o))} · generated ${fmtAge(Date.now() - o.docs.invoice.at)} ago`, 'invoice')}
             {o.tradeIn && check(['form4', 'review', 'signed'].includes(c.stage) || signed, 'Trade-in Form 4', 'Required for the trade-in')}
             {(idPending || o.dl.crn) && check(o.dl.status === 'Verified', `Customer ID · ${crnName}`, o.dl.status === 'Verified' ? `${o.dl.crn} · received via ${o.dl.crnVia}` : `${o.dl.state} licence, registering in ${o.customer.state} · requested ${fmtAge(Date.now() - (o.dl.requestedAt || Date.now()))} ago`)}
-          </div>
+          <DataTable columns={[{ key: 'c', label: 'Check' }, { key: 'n', label: 'Detail' }, { key: 'st', label: 'Status', isBadge: true }, { key: 'a', label: '', align: 'right' }]} rows={checkRows} />
         </SectionCard>
         {(idPending || o.dl.crn) && <SectionCard part="crn" title={`Customer ID · ${crnName}`} subtitle="Collected here, before the final payment">{crnTracker(true)}</SectionCard>}
         {o.rmDone.final && <InfoMessage tone="success" icon="circle-check-filled">Checked {fmtAge(Date.now() - o.rmDone.final)} ago. Ready for the final payment.</InfoMessage>}
@@ -606,72 +549,33 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
       ];
     }
     fx = open ? ['Recalculate the outstanding amount', 'Regenerate the tax invoice', `Above ${money(DISCOUNT_LIMIT)}: send to the sales manager for approval first`, 'Sync discount_value to the order record'] : [];
-    const li = (k: string, val: number | string) => <li key={k}><span>{k}</span><b>{typeof val === 'number' ? money(val) : val}</b></li>;
+    const g = govtCharges(o);
     body = (
       <>
         {open && (
-          <SectionCard part="calc" title="1 · Discount calculator" subtitle="Enter the outstanding amount you want; LeadVerse back-calculates the discount">
-            <div className="dc-cols">
-              <ul className="dc-list">
-                {li('DAP', dap(o))}
-                {li('EGC', o.price)}
-                {li('Govt charges', govtCharges(o).total)}
-                <ul className="dc-sub">{li('Motor vehicle duty', govtCharges(o).duty)}{li('3 months registration', govtCharges(o).rego)}{li('CTP insurance', govtCharges(o).ctp)}{li('Transfer fee', govtCharges(o).transfer)}{li('Handling fee', govtCharges(o).handling)}</ul>
-              </ul>
-              <ul className="dc-list">
-                {li('Interstate charges', 0)}
-                {li('Home delivery charges', o.shipping)}
-                {li('Discount value', o.discount?.status === 'Applied' ? o.discount.amount : '—')}
-                {li('VAS', vasTotal(o))}
-                {o.tradeIn && li('Trade-in', -o.tradeIn.value)}
-                {li('Total amount to be paid', orderTotal(o))}
-                {li('Total amount paid', paid)}
-                <li className="dc-due"><span>Current outstanding</span><b>{money(due)}</b></li>
-              </ul>
+          <SectionCard part="calc" title="1 · Discount calculator" subtitle="Type the outstanding amount the customer agreed to; LeadVerse works out the discount">
+            <div className="rm-cols">
+              <PaymentDetails items={[{ label: 'EGC (car price)', value: money(o.price) }, { label: 'Govt charges', value: money(g.total) }, { label: '· Motor vehicle duty', value: money(g.duty) }, { label: `· ${g.months} months registration`, value: money(g.rego) }, { label: '· CTP insurance', value: money(g.ctp) }, { label: '· Transfer and handling', value: money(g.transfer + g.handling) }, 'sep', { label: 'DAP', value: money(dap(o)), highlight: true }]} />
+              <PaymentDetails items={[{ label: 'Home delivery', value: money(o.shipping) }, { label: 'VAS', value: money(vasTotal(o)) }, { label: 'Discount applied', value: o.discount?.status === 'Applied' ? '− ' + money(o.discount.amount) : '—' }, ...(o.tradeIn ? [{ label: 'Trade-in', value: '− ' + money(o.tradeIn.value) }] : []), { label: 'Total to be paid', value: money(orderTotal(o)) }, { label: 'Paid so far', value: '− ' + money(paid) }, 'sep', { label: 'Current outstanding', value: money(due), highlight: true }]} />
             </div>
-            <div className="dc-row">
-              <label className="tf">
-                <span>Required outstanding amount</span>
-                <div className="dc-in"><em>$</em><input type="number" min={0} value={calc.target} placeholder={String(Math.max(0, due - 1000))} onChange={(e) => setCalc({ target: e.target.value, result: null })} onKeyDown={(e) => { if (e.key === 'Enter') runCalc(); }} /></div>
-              </label>
-              <button className="btn" disabled={!!calcErr} title={calcErr} onClick={runCalc}>Calculate discount</button>
+            <div className="rm-inline">
+              <TextInput label="Required outstanding amount" prefix="$" type="number" value={calc.target} placeholder={String(Math.max(0, due - 1000))} error={calc.target !== '' ? calcErr || undefined : undefined} onChange={(v) => setCalc({ target: v, result: null })} onEnter={runCalc} />
+              <Button variant="secondary" disabled={!!calcErr} onClick={runCalc}>Calculate discount</Button>
             </div>
-            {calc.target !== '' && calcErr && <div className="dc-err">{calcErr}</div>}
-            {calc.result != null && (
-              <>
-                <div className="dc-msg">The current total due is <b>{money(due)}</b>. To bring it to <b>{money(target)}</b>, a discount of <b>{money(calc.result)}</b> is needed. It has been filled in below.</div>
-                <label className="tf" style={{ maxWidth: 260 }}><span>Required discount</span><div className="tf-ro">{money(calc.result)}</div></label>
-              </>
-            )}
+            {calc.result != null && <InfoMessage tone="success" icon="circle-check-filled">To bring {money(due)} down to {money(target)} the discount is {money(calc.result)}. It is filled in below.</InfoMessage>}
           </SectionCard>
         )}
 
         {open && (
-          <SectionCard part="generate" title="2 · Generate discount" subtitle={`Above ${money(DISCOUNT_LIMIT)} goes to the sales manager first`} badge={o.discount?.status === 'Awaiting approval' ? { label: 'Awaiting approval', variant: 'warning' } : undefined}>
-          <div className="tform">
-            <label className="tf">
-              <span>Discount type <i className="req">*</i></span>
-              <div className="tf-sel"><select value={disc.type} onChange={(e) => setDisc({ ...disc, type: e.target.value as 'Flat' | 'Percent' })}><option value="Flat">Flat</option><option value="Percent">Percentage</option></select></div>
-            </label>
-            <label className="tf">
-              <span>Discount description <i className="req">*</i></span>
-              <div className="tf-sel"><select value={disc.reason} onChange={(e) => setDisc({ ...disc, reason: e.target.value })}><option value="">Select discount description</option>{DISCOUNT_DESCRIPTIONS.map((r) => <option key={r}>{r}</option>)}</select></div>
-            </label>
-            <label className="tf">
-              <span>Discount value {disc.type === 'Flat' ? '($)' : '(%)'} <i className="req">*</i></span>
-              <input className="tf-in" type="number" min={0} value={disc.value} onChange={(e) => setDisc({ ...disc, value: e.target.value })} />
-              {disc.type === 'Percent' && v > 0 && <small className="tf-help">{v}% of {money(o.price)} = {money(amt)} off</small>}
-              {amt > DISCOUNT_LIMIT && <small className="tf-help warn">Above {money(DISCOUNT_LIMIT)} needs sales manager approval</small>}
-            </label>
-            <label className="tf">
-              <span>Discount valid till <small className="opt">(optional)</small></span>
-              <input className="tf-in" type="date" value={disc.till} onChange={(e) => setDisc({ ...disc, till: e.target.value })} />
-            </label>
-            <div className="tf wide dc-after">
-              <span>After this discount</span>
-              <div className="tf-ro"><span>Outstanding {money(due)} → <b>{money(Math.max(0, due - amt))}</b></span></div>
+          <SectionCard part="generate" title="2 · Generate discount" subtitle={`Above ${money(DISCOUNT_LIMIT)} goes to the sales manager first`} badge={amt > DISCOUNT_LIMIT ? { label: 'Needs approval', variant: 'warning' } : undefined}>
+            <div className="tu-grid2">
+              <div className="tu-dd"><label>Discount type<i className="tu-req">*</i></label><SegmentTabs value={disc.type} options={[{ value: 'Flat', label: 'Flat ($)' }, { value: 'Percent', label: 'Percentage (%)' }]} onChange={(v) => setDisc({ ...disc, type: v })} /></div>
+              <Dropdown label={<>Discount description<i className="tu-req">*</i></>} value={disc.reason} onChange={(v) => setDisc({ ...disc, reason: v })} options={[{ value: '', label: 'Select discount description', disabled: true }, ...DISCOUNT_DESCRIPTIONS.map((r) => ({ value: r, label: r }))]} />
+              <TextInput label="Discount value" required type="number" prefix={disc.type === 'Flat' ? '$' : '%'} value={disc.value} onChange={(v) => setDisc({ ...disc, value: v })}
+                helper={disc.type === 'Percent' && v > 0 ? `${v}% of ${money(o.price)} = ${money(amt)} off` : undefined} error={disc.type === 'Percent' && v > 100 ? 'Percentage must be 100 or less' : undefined} />
+              <TextInput label="Valid till (optional)" type="date" value={disc.till} onChange={(v) => setDisc({ ...disc, till: v })} />
             </div>
-          </div>
+            <PaymentDetails items={[{ label: 'Outstanding now', value: money(due) }, { label: 'Discount', value: amt ? '− ' + money(amt) : '—' }, 'sep', { label: 'Outstanding after', value: money(Math.max(0, due - amt)), highlight: true }]} />
           </SectionCard>
         )}
 
@@ -690,25 +594,14 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     body = (
       <>
         <SectionCard part="vas" title="Value added services" subtitle="On the order now; each one changes the DAP and the invoice" right={<Button variant="secondary" icon="plus-large-outline" onClick={() => setVasModal(true)}>Add VAS</Button>}>
-        <div className="tbox">
-          <table className="tl-t">
-            <thead><tr><th>VAS Item</th><th>Total Amount</th><th>Status</th><th>Details</th><th aria-label="Actions" /></tr></thead>
-            <tbody>{o.vas.map((v) => (
-              <Fragment key={v.name}>
-                <tr>
-                  <td>{v.name}</td><td className="mono">{money(v.price)}</td><td>{v.status || 'ACTIVE'}</td><td className="vas-d">{v.details || '—'}</td>
-                  <td style={{ textAlign: 'right' }}><button className="vas-plus" aria-label={`More on ${v.name}`} aria-expanded={vasRow === v.name} onClick={() => setVasRow(vasRow === v.name ? '' : v.name)}>{vasRow === v.name ? '−' : '+'}</button></td>
-                </tr>
-                {vasRow === v.name && (
-                  <tr className="vas-x"><td colSpan={5}>
-                    <span>Plan type: <b>{v.type || '—'}</b>{task(o, 'vas', v.name) ? <> · Install task: <b>{stageDef(task(o, 'vas', v.name)!).label}</b></> : /warranty|insurance|iloe|service contract/i.test(v.name) ? ' · No install task needed' : ' · Install task created once the money gate clears'}</span>
-                    {v.base ? <small>Included with every car, can't be removed</small> : <button className="btn sm danger" onClick={() => { setVasRow(''); act((x, at) => removeVas(x, v.name, at)); }}>Remove VAS</button>}
-                  </td></tr>
-                )}
-              </Fragment>
-            ))}</tbody>
-          </table>
-        </div>
+          <DataTable columns={[{ key: 'n', label: 'VAS item', subTextKey: 'd' }, { key: 'p', label: 'Amount', align: 'right' }, { key: 'st', label: 'Status', isBadge: true }, { key: 'i', label: 'Install' }, { key: 'a', label: '', align: 'right' }]} empty="No VAS on this order"
+            rows={o.vas.map((v) => {
+              const it = task(o, 'vas', v.name);
+              const noInstall = /warranty|insurance|iloe|service contract/i.test(v.name);
+              return { n: v.name, d: v.type || 'VAS', p: money(v.price), st: { label: v.status === 'CANCELLED' ? 'Cancelled' : 'Active', variant: v.status === 'CANCELLED' ? 'neutral' : 'success' },
+                i: <span className="wrap">{it ? stageDef(it).label : noInstall ? 'Not needed' : 'Created when the money gate clears'}</span>,
+                a: v.base ? <small className="tu-hint">Included</small> : <LinkButton onClick={() => act((x, at) => removeVas(x, v.name, at))}>Remove</LinkButton> };
+            })} />
         </SectionCard>
         <DapBreakup o={o} />
         <RegistrationDetails o={o} />
@@ -744,37 +637,20 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
       <>
         <InfoMessage tone={tt && (tt.stage === 'disputed' || (fin && !accepted)) ? 'warning' : accepted ? 'success' : 'information'}>{status}</InfoMessage>
         <SectionCard part="details" title="Trade-in details" subtitle="Owned by the Trade-In team · read-only for the RM" badge={tt ? { label: stageDef(tt).label, variant: accepted ? 'success' : tt.stage === 'disputed' ? 'error' : fin ? 'warning' : 'neutral' } : undefined}>
-        <div className="ti-form">
-          {TI_FIELDS.map((fd, k) => (
-            <label key={fd.key} className="tf"><span>{k + 1}. {fd.label.replace(' ($)', '')}</span><div className={'tf-ro' + (fd.key === 'tiValue' ? ' strong' : '')}>{shown(fd)}</div></label>
-          ))}
-        </div>
+        <FetchedInfo cols={2} items={TI_FIELDS.map((fd) => [fd.label.replace(' ($)', ''), shown(fd)])} />
         <small className="tu-hint">*If modified by the Trade-In team, changes are stored in the B2C database only, not in C2B.</small>
         </SectionCard>
         {fin && !accepted && (
           <SectionCard part="decision" title="Customer decision on the price" subtitle={`Final price ${money(ti!.value)}, set by the Trade-In team`}>
-            <div className="ti-ans">
-              <label className="tf"><span>Customer agrees with {money(ti!.value)}? <i className="req">*</i></span>
-                <div className="tf-sel"><select value={tiAns.agree} onChange={(e) => setTiAns({ ...tiAns, agree: e.target.value })}>
-                  <option value="">Select</option><option>Agree</option><option>Not agree</option>
-                </select></div>
-              </label>
-              {tiAns.agree === 'Not agree' && (
-                <>
-                  <label className="tf"><span>Reason <i className="req">*</i></span>
-                    <div className="tf-sel"><select value={tiAns.reason} onChange={(e) => setTiAns({ ...tiAns, reason: e.target.value })}>
-                      <option value="">Select reason</option>{TI_CONFLICT_REASONS.map((r) => <option key={r}>{r}</option>)}
-                    </select></div>
-                  </label>
-                  <label className="tf"><span>Customer expected price (AUD) <i className="opt">optional</i></span>
-                    <input className="tf-in" type="number" min="0" placeholder={`e.g. ${ti!.value + 500}`} value={tiAns.expected} onChange={(e) => setTiAns({ ...tiAns, expected: e.target.value })} />
-                  </label>
-                  <label className="tf full"><span>Note for the Trade-In team <i className="req">*</i></span>
-                    <textarea className="tf-in sf-ta" placeholder="e.g. Has the full service history and new tyres; another dealer offered more" value={tiAns.note} onChange={(e) => setTiAns({ ...tiAns, note: e.target.value })} />
-                  </label>
-                </>
-              )}
-            </div>
+            <div className="tu-dd"><label>Does the customer agree with {money(ti!.value)}?<i className="tu-req">*</i></label>
+              <SegmentTabs value={tiAns.agree} options={[{ value: 'Agree', label: 'Agrees' }, { value: 'Not agree', label: 'Does not agree' }]} onChange={(v) => setTiAns({ ...tiAns, agree: v })} /></div>
+            {tiAns.agree === 'Not agree' && (
+              <div className="tu-grid2">
+                <Dropdown label={<>Reason<i className="tu-req">*</i></>} value={tiAns.reason} onChange={(v) => setTiAns({ ...tiAns, reason: v })} options={[{ value: '', label: 'Select reason', disabled: true }, ...TI_CONFLICT_REASONS.map((r) => ({ value: r, label: r }))]} />
+                <TextInput label="Customer's expected price (optional)" prefix="$" type="number" placeholder={String(ti!.value + 500)} value={tiAns.expected} onChange={(v) => setTiAns({ ...tiAns, expected: v })} />
+                <div className="full"><TextArea label="Note for the Trade-In team" required placeholder="e.g. Full service history and new tyres; another dealer offered more" value={tiAns.note} onChange={(v) => setTiAns({ ...tiAns, note: v })} /></div>
+              </div>
+            )}
           </SectionCard>
         )}
       </>
@@ -808,9 +684,20 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     if (p.stage === 'deposit') {
       primary = { label: 'Record payment', run: () => {}, block: 'Confirm the first instalment in step 1 first' };
     } else if (['instalment', 'short'].includes(p.stage)) {
-      primary = { label: 'Add payment entry', run: () => setPayModal(true), block: o.tradeInOpted === 'Yes' && !o.rmDone.tradein ? 'Trade-in final price not agreed with the customer yet' : !o.rmDone.final ? 'Check the contract & invoice first (previous step)' : '' };
-      alts = [{ label: `Call ${first} to chase the balance`, run: () => onComms(`Call to ${o.customer.phone}: balance of ${money(left)} discussed`) }, ...taskActions(p).alts];
-      fx = ['Add the payment to the ledger', `Fully paid → Finance ticket to Final remittance received, else Awaiting additional deposit (HubSpot TW01a)`];
+      const gate = o.tradeInOpted === 'Yes' && !o.rmDone.tradein ? 'Trade-in final price not agreed with the customer yet' : !o.rmDone.final ? 'Check the contract & invoice first (C1)' : '';
+      const linkOpen = !!o.payLink && !o.payLink.paidAt;
+      // Most balances are paid by card or transfer the day the RM asks: a Stripe link removes the manual entry and the reconciliation.
+      primary = linkOpen
+        ? { label: 'Demo: customer pays by the link', run: () => act((x, at) => payByLink(x, at)) }
+        : { label: `Send payment link · ${money(left)}`, run: () => act((x, at) => sendPayLink(x, at)), block: gate || (!chan.sms && !chan.email ? 'Pick SMS, email or both' : '') };
+      alts = [
+        ...(linkOpen ? [{ label: 'Resend the payment link', run: () => act((x, at) => sendPayLink(x, at)) }] : []),
+        { label: 'Add payment entry (bank transfer)', run: () => setPayModal(true), block: gate },
+        { label: `Call ${first} to chase the balance`, run: () => onComms(`Call to ${o.customer.phone}: balance of ${money(left)} discussed`) },
+        ...taskActions(p).alts,
+      ];
+      fx = linkOpen ? ['Stripe confirms the payment and it lands in the ledger on its own', `Fully paid → Finance ticket to Final remittance received (HubSpot TW01a)`, 'Part paid → Awaiting additional deposit, and a new link for what is left']
+        : [`Send a Stripe link for ${money(left)} by ${[chan.sms && 'SMS', chan.email && 'email'].filter(Boolean).join(' and ') || '…'}`, 'The customer pays on their phone; no manual entry, no reconciliation', 'Bank transfers still go in through Add payment entry'];
     } else {
       const a = taskActions(p);
       primary = a.primary; alts = a.alts;
@@ -818,6 +705,19 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     }
     body = (
       <>
+        {['instalment', 'short'].includes(p.stage) && left > 0 && (
+          <SectionCard part="paylink" title="Payment link" subtitle="Stripe, for the full outstanding amount; the customer pays on their phone"
+            badge={o.payLink ? (o.payLink.paidAt ? { label: 'Paid', variant: 'success' } : { label: 'Waiting for the customer', variant: 'warning' }) : { label: 'Not sent', variant: 'neutral' }}>
+            {o.payLink && !o.payLink.paidAt ? (
+              <PaymentDetails items={[{ label: 'Link', value: o.payLink.url, copy: 'https://' + o.payLink.url }, { label: 'Sent', value: `${fmtAge(Date.now() - o.payLink.at)} ago` }, 'sep', { label: 'Amount', value: money(o.payLink.amount), highlight: true }]} />
+            ) : (
+              <>
+                <div className="rm-checks"><Checkbox label="SMS" sub={o.customer.phone} checked={chan.sms} onChange={(v) => setChan({ ...chan, sms: v })} /><Checkbox label="Email" sub={o.customer.email} checked={chan.email} onChange={(v) => setChan({ ...chan, email: v })} /></div>
+                <PaymentDetails items={[{ label: 'Total to be paid', value: money(orderTotal(o)) }, { label: 'Paid so far', value: '− ' + money(orderTotal(o) - left) }, 'sep', { label: 'Link amount', value: money(left), highlight: true }]} />
+              </>
+            )}
+          </SectionCard>
+        )}
         <SectionCard part="payments" title="Payments" subtitle="The ledger; each entry needs a transaction and a reference ID" badge={{ label: left ? `${money(left)} outstanding` : 'Paid in full', variant: left ? 'warning' : 'success' }}
           right={['instalment', 'short'].includes(p.stage) && !primary?.block ? <LinkButton icon="plus-large-outline" onClick={() => setPayModal(true)}>Add payment entry</LinkButton> : undefined}>
           <DataTable columns={[{ key: 'type', label: 'Payment type' }, { key: 'src', label: 'Source' }, { key: 'txn', label: 'Transaction ID' }, { key: 'ref', label: 'Reference' }, { key: 'amt', label: 'Amount', align: 'right' }, { key: 'paid', label: 'Paid' }, { key: 'by', label: 'By' }]}
@@ -841,7 +741,10 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
     const clear = gatesClear(o);
     if (!o.slot) {
       primary = { label: 'Book & confirm slot', run: () => onBook(date, time, false), block: clear ? '' : 'Blocked by: ' + gateStatus(o).filter((g) => !g.ok).map((g) => g.label).join(', ') };
-      alts = !isDone(c) ? [{ label: o.bypassContract ? 'Remove contract gate bypass' : 'Bypass contract gate (by_pass_contract_gfd_for_delivery_slots)', run: () => onBypass(!o.bypassContract) }] : [];
+      alts = [
+        ...(!o.slotLink ? [{ label: 'Send the customer a slot picker', run: () => act((x, at) => sendSlotLink(x, at)), block: clear ? '' : 'Opens once every gate is clear' }] : []),
+        ...(!isDone(c) ? [{ label: o.bypassContract ? 'Remove contract gate bypass' : 'Bypass contract gate (by_pass_contract_gfd_for_delivery_slots)', run: () => onBypass(!o.bypassContract) }] : []),
+      ];
       fx = ['Book the slot and create / move the Handover task for Delivery', 'Email + SMS confirmation to the customer', o.deliveryMode === 'Home delivery' ? 'Shipping charge is on the invoice' : 'Pick-up at ' + o.car.hub.split(' · ')[0]];
     }
     const gates = gateStatus(o);
@@ -861,9 +764,10 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
         {!o.slot ? (
           <SectionCard part="slot" title="Handover slot" subtitle={clear ? `${hub} · pick a day, then a time` : 'Slots open once every gate is clear'} badge={clear ? { label: 'Open to book', variant: 'success' } : { label: 'Blocked', variant: 'warning' }}>
             <div className="tu-slots-2">
-              <SelectionSlots title="Day" ariaLabel="Handover day" value={date} onChange={setDate} slots={DAYS.map(([d, n, full]) => ({ value: d, title: d, description: clear ? n : 'Gates not clear', disabled: !clear || !!full }))} />
+              <SelectionSlots title="Day" ariaLabel="Handover day" value={date} onChange={setDate} slots={DAYS.map(([d, n, full], k) => ({ value: d, title: d, description: clear ? (k === DAYS.findIndex((x) => !x[2]) ? 'Earliest · ' : '') + n : 'Gates not clear', disabled: !clear || !!full }))} />
               <SelectionSlots title="Time" ariaLabel="Handover time" value={time} onChange={setTime} slots={TIMES.map(([t, n, taken]) => ({ value: t, title: t, description: clear ? n || undefined : undefined, disabled: !clear || !!taken }))} />
             </div>
+            {o.slotLink && <InfoMessage icon="link">Slot picker sent {fmtAge(Date.now() - o.slotLink.at)} ago ({o.slotLink.url}). The customer sees the same open slots; whichever of you books first takes it.</InfoMessage>}
           </SectionCard>
         ) : <InfoMessage tone="success" icon="calendar-check-outline">Booked for {o.slot.date} · {o.slot.time} by {o.slot.by}. Confirmation sent by email and SMS.</InfoMessage>}
       </>
@@ -920,6 +824,14 @@ export function RmFlow({ o, step, setStep, stepsOpen, toggleSteps, onField, onMo
         </div>
         <Dls className="rm-dls">
           <div className="tu-stack">
+            <div className="rm-money" data-part="money">
+              <FetchedInfo cols={4} items={[
+                ['Order total', money(orderTotal(o))],
+                ['Paid', money(orderTotal(o) - outstanding(o))],
+                ['Outstanding', outstanding(o) > 0 ? <span className="rm-due">{money(outstanding(o))}</span> : <span className="rm-ok">Paid in full</span>],
+                ['Handover gates', `${gateStatus(o).filter((g) => g.ok).length} of ${gateStatus(o).length} clear`],
+              ]} />
+            </div>
             {isByo && step !== 'deposit' && <ByoStatusCard o={o} act={act} open={byoOpen} setOpen={setByoOpen} />}
             {body}
           </div>

@@ -378,13 +378,13 @@ function CustomerView({ o }: { o: Order }) {
   const byo = o.paymentMode === 'BYO';
   const pay = byo
     ? ({ deposit: 'Checking your deposit', awaiting: `Waiting for ${o.lender || 'your lender'} to approve`, approved: `${o.lender || 'Your lender'} approved your loan`, remitShort: `${o.lender || 'Your lender'} paid; ${money(outstanding(o))} left for you to pay`, remit: 'Your lender has paid', settled: 'Paid in full', cancelled: 'Order cancelled' } as Record<string, string>)[p?.stage || 'deposit']
-    : outstanding(o) > 0 ? `${money(outstanding(o))} left to pay` : 'Paid in full';
+    : o.payLink && !o.payLink.paidAt ? `Pay ${money(o.payLink.amount)} with the link we sent` : outstanding(o) > 0 ? `${money(outstanding(o))} left to pay` : 'Paid in full';
   const steps: [string, boolean, string][] = [
     ['Deposit', !!p && p.stage !== 'deposit', p && p.stage !== 'deposit' ? 'Confirmed' : 'Checking your payment'],
     [byo ? 'Your loan' : 'Payment', byo ? ['remit', 'settled'].includes(p?.stage || '') : isDone(p), pay],
     ['Contract', isDone(task(o, 'contract')), isDone(task(o, 'contract')) ? 'Signed' : 'Sign on DocuSign'],
     ['Getting your car ready', isDone(task(o, 'refurb')) && isDone(task(o, 'rwc')), task(o, 'rwc') ? 'Roadworthy, registration and detailing' : 'Starts once payment is confirmed'],
-    ['Handover', !!o.slot, o.slot ? `${o.slot.date} · ${o.slot.time}` : gatesClear(o) ? 'Pick a time' : 'Opens when your car is ready'],
+    ['Handover', !!o.slot, o.slot ? `${o.slot.date} · ${o.slot.time}` : o.slotLink ? 'Pick your handover time from the link' : gatesClear(o) ? 'Your RM will call to book a time' : 'Opens when your car is ready'],
   ];
   const at = steps.findIndex(([, d]) => !d);
   return (

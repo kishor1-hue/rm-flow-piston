@@ -421,3 +421,29 @@
 .tu-slots .slot.off .rd{background:var(--tu-surface-tertiary); border-color:var(--tu-border-tertiary);}
 .tu-slots-2{display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:16px;}
 .tu-seg button:disabled{cursor:not-allowed; opacity:.6;}
+
+/* @cspl/text-input + text-area states, @cspl/modal (overlay fixed inset-0, backdrop neutral-950/60, panel rounded-2xl) */
+.tu-req{font-style:normal; color:var(--tu-red-700); margin-left:2px;}
+.tu-err{font-size:12px; color:var(--tu-red-700);}
+.tu-ti.err input, .tu-ti.err textarea{border-color:var(--tu-red-700);}
+.tu-ta textarea{width:100%; min-height:84px; resize:vertical; border:1px solid var(--tu-border-secondary); border-radius:12px; padding:10px 12px; font:inherit; font-size:14px; color:var(--tu-text-primary); background:var(--tu-surface); outline:none;}
+.tu-ta textarea:focus{border-color:var(--tu-brand); box-shadow:0 0 0 3px var(--tu-brand-50);}
+.tu-ta .ft{display:flex; justify-content:space-between; gap:8px;}
+.tu-cb.off{opacity:.55; cursor:not-allowed;}
+.tu-modal{position:fixed; inset:0; z-index:200; display:flex; align-items:center; justify-content:center; padding:24px;}
+.tu-modal .bd{position:absolute; inset:0; background:#0A0A0A; opacity:.6;}
+.tu-modal .pn{position:relative; width:min(560px,100%); max-height:92%; display:flex; flex-direction:column; background:var(--tu-surface); border-radius:16px; box-shadow:0 24px 60px rgba(0,0,0,.25); overflow:hidden;}
+.tu-modal .pn.wide{width:min(760px,100%);}
+.tu-modal .mh{display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:18px 20px 12px;}
+.tu-modal .mh b{display:block; font-size:17px; font-weight:600; color:var(--tu-text-primary);}
+.tu-modal .mh small{display:block; margin-top:2px; font-size:13px; color:var(--tu-text-secondary);}
+.tu-modal .x{width:32px; height:32px; border-radius:50%; border:0; background:var(--tu-surface-tertiary); display:grid; place-items:center; cursor:pointer; color:var(--tu-text-primary);}
+.tu-modal .mb{padding:4px 20px 16px; overflow-y:auto; display:flex; flex-direction:column; gap:14px;}
+.tu-modal .mf{display:flex; justify-content:flex-end; gap:10px; padding:12px 20px 16px; border-top:1px solid var(--tu-border-tertiary);}
+.tu-grid2{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px 16px;}
+.tu-grid2 > .full{grid-column:1 / -1;}
+@media (max-width:700px){.tu-grid2{grid-template-columns:1fr;}}
+.tu-stepper.fit{padding:4px 24px 0;}
+.tu-ti > div, .tu-ti > input{width:100%;}
+.tu-ti input{width:100%; box-sizing:border-box;}
+.tu-ti-pre input{flex:1; min-width:0;}
